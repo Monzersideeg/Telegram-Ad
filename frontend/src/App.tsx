@@ -132,6 +132,8 @@ export default function App() {
   const [checkin, setCheckin] = useState<{ streakDays: number; checkedInToday: boolean; nextReward: number }>({ streakDays: 1, checkedInToday: false, nextReward: 0 });
   const [spinCooldown, setSpinCooldown] = useState<number>(0);
   const [busyAction, setBusyAction] = useState<boolean>(false);
+  const [rewardPerAdCoins, setRewardPerAdCoins] = useState<number>(0);
+  const [adCooldownSeconds, setAdCooldownSeconds] = useState<number>(30);
 
   // ----- helpers -----
   const addTerminalLog = (lines: string[]) => {
@@ -340,6 +342,8 @@ export default function App() {
         usdToCoinRate: rate,
         minWithdrawal: data.config.minWithdrawal / rate,
       }));
+      setRewardPerAdCoins(data.config.rewardPerAd);
+      setAdCooldownSeconds(data.config.adCooldownSeconds);
       setMonetagConfig((prev) => ({
         ...prev,
         interstitialZoneId: data.config.monetagZoneId,
@@ -417,66 +421,104 @@ export default function App() {
   };
 
   // ----- REAL ad reward flow (Monetag rewarded interstitial + S2S postback) -----
-  const handleAdWatched = async (_reward: number, title: string) => {
-    const rate = appConfig.usdToCoinRate;
-    addTerminalLog(["POST /api/ads/start → opening watch session…"]);
-    try {
-      const { data } = await api.post<{ sessionId: string; zoneId: string; ymid: string; requestVar: string }>(
-        "/api/ads/start"
-      );
-      const { sessionId, zoneId, ymid, requestVar } = data;
+  // CRITICAL: the Monetag SDK handler MUST be invoked synchronously inside the user's
+  // tap — no `await` before it — otherwise the browser / Telegram webview drops the
+  // transient user-gesture and the interstitial never opens (this was the bug: the old
+  // code ran a fake countdown + CAPTCHA and only called the SDK seconds later). So we
+  // generate the session id client-side, open the real ad immediately, and register the
+  // session with the backend right after (the row is created while the ad is on screen,
+  // long before the S2S postback fires on completion). Coins are still credited ONLY by
+  // the verified valued postback — never here.
+  const handleWatchAd = async (): Promise<{
+    ok: boolean;
+    coins?: number;
+    cooldownSec?: number;
+    reason?: string;
+  }> => {
+    if (busyAction) return { ok: false, reason: "busy" };
+    const zoneId = monetagConfig.interstitialZoneId;
 
-      if (isDevAdMode(zoneId)) {
-        await simulateAdDev();
-        await api.post("/api/dev/simulate-postback", { sessionId }).catch(() => undefined);
-      } else {
-        const outcome = await showRewardedAd({ zoneId, ymid, requestVar });
-        if (!outcome.completed) {
-          addTerminalLog([`✗ Ad unavailable: ${outcome.error || "no feed"}`]);
-          return;
-        }
-      }
-
-      addTerminalLog([`GET /api/postback/monetag?ymid=${sessionId.slice(0, 8)}… → awaiting S2S confirmation…`]);
-      const status = await pollAdStatus(sessionId);
-
-      if (status?.status === "confirmed") {
-        const earnedUsd = status.reward / rate;
-        const b = await api.get<{ balance: number }>("/api/ledger/balance");
-        const newBalUsd = b.data.balance / rate;
-
-        const oldLevel = Math.floor(stats.adsWatchedCount / 10) + 1;
-        setStats((prev) => ({
-          ...prev,
-          balance: newBalUsd,
-          lifetimeEarnings: prev.lifetimeEarnings + earnedUsd,
-          adsWatchedCount: prev.adsWatchedCount + 1,
-        }));
-        const newLevel = Math.floor((stats.adsWatchedCount + 1) / 10) + 1;
-        if (newLevel > oldLevel) {
-          setTimeout(() => {
-            setLevelUpData({ newLevel, oldLevel });
-            fireLevelUpConfetti();
-          }, 600);
-        }
-
-        setWatchHistory((prev) => [
-          { id: `log_${Date.now()}`, campaignId: "ad_reward", title: title || "Rewarded Ad", reward: earnedUsd, timestamp: new Date().toISOString() },
-          ...prev,
-        ]);
-        addTerminalLog([`✓ S2S postback verified (valued). Credited +${status.reward} ${appConfig.currencySymbol}.`]);
-        playSuccessSound();
-      } else if (status?.status === "unrewarded") {
-        addTerminalLog(["⚠ Ad viewed but not valued (unpaid traffic). No reward credited."]);
-      } else {
-        addTerminalLog(["⏳ Reward pending confirmation — balance will sync shortly."]);
-        api.get<{ balance: number }>("/api/ledger/balance")
-          .then((b) => setStats((prev) => ({ ...prev, balance: b.data.balance / rate })))
-          .catch(() => undefined);
-      }
-    } catch (err) {
-      addTerminalLog([`✗ ${apiErrorMessage(err)}`]);
+    // DEV builds (or a missing/placeholder zone) keep a short simulation for testing.
+    if (isDevAdMode(zoneId)) {
+      await simulateAdDev();
+      const coins = rewardPerAdCoins || 10;
+      const rate = appConfig.usdToCoinRate || 1000;
+      setStats((prev) => ({
+        ...prev,
+        adsWatchedCount: prev.adsWatchedCount + 1,
+        balance: prev.balance + coins / rate,
+        lifetimeEarnings: prev.lifetimeEarnings + coins / rate,
+      }));
+      addTerminalLog(["[DEV] simulated ad (no live Monetag zone configured)."]);
+      playSuccessSound();
+      return { ok: true, coins, cooldownSec: adCooldownSeconds };
     }
+
+    const sessionId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `s_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    // 1) SYNCHRONOUS open of the real Monetag rewarded interstitial (gesture preserved).
+    const adPromise = showRewardedAd({ zoneId, ymid: sessionId, requestVar: "watch_button" });
+
+    setBusyAction(true);
+    addTerminalLog([`POST /api/ads/start (session ${sessionId.slice(0, 8)}…) → opening real Monetag ad…`]);
+
+    // 2) Register the session in the background so the row exists while the ad plays.
+    const regPromise = api.post("/api/ads/start", { sessionId }).catch((err) => {
+      addTerminalLog([`✗ /api/ads/start failed: ${apiErrorMessage(err)}`]);
+      return null;
+    });
+
+    // 3) Wait for the user to finish (or dismiss) the real ad, then ensure the row exists.
+    const outcome = await adPromise;
+    await regPromise;
+    setBusyAction(false);
+
+    if (!outcome.completed) {
+      addTerminalLog([`✗ Real ad not shown: ${outcome.error || "no feed / unavailable"}`]);
+      return { ok: false, reason: outcome.noFeed ? "no_ads" : outcome.error || "not_completed" };
+    }
+
+    // 4) Poll for the authoritative S2S postback outcome.
+    addTerminalLog([`GET /api/ads/status/${sessionId.slice(0, 8)}… → awaiting S2S confirmation…`]);
+    const status = await pollAdStatus(sessionId);
+    const rate = appConfig.usdToCoinRate;
+
+    if (status?.status === "confirmed") {
+      const coins = status.reward;
+      const b = await api.get<{ balance: number }>("/api/ledger/balance").catch(() => null);
+      const newBalUsd = b ? b.data.balance / rate : stats.balance + coins / rate;
+      const oldLevel = Math.floor(stats.adsWatchedCount / 10) + 1;
+      setStats((prev) => ({
+        ...prev,
+        balance: newBalUsd,
+        lifetimeEarnings: prev.lifetimeEarnings + coins / rate,
+        adsWatchedCount: prev.adsWatchedCount + 1,
+      }));
+      const newLevel = Math.floor((stats.adsWatchedCount + 1) / 10) + 1;
+      if (newLevel > oldLevel) {
+        setTimeout(() => {
+          setLevelUpData({ newLevel, oldLevel });
+          fireLevelUpConfetti();
+        }, 600);
+      }
+      addTerminalLog([`✓ S2S postback verified (valued). Credited +${coins} ${appConfig.currencySymbol}.`]);
+      playSuccessSound();
+      return { ok: true, coins, cooldownSec: adCooldownSeconds };
+    }
+
+    if (status?.status === "unrewarded") {
+      addTerminalLog(["⚠ Ad viewed but not valued (unpaid traffic). No reward credited."]);
+      return { ok: false, reason: "unrewarded" };
+    }
+
+    addTerminalLog(["⏳ Reward pending confirmation — balance will sync shortly."]);
+    api.get<{ balance: number }>("/api/ledger/balance")
+      .then((b) => setStats((prev) => ({ ...prev, balance: b.data.balance / rate })))
+      .catch(() => undefined);
+    return { ok: false, reason: "pending" };
   };
 
   // ----- daily check-in (backend) -----
@@ -750,12 +792,13 @@ export default function App() {
                       watchHistory={watchHistory}
                       onNavigateTab={handleNavigateTab}
                       telegramUser={telegramUser}
-                      onAdWatched={handleAdWatched}
+                      onWatchAd={handleWatchAd}
                       joinedTelegram={joinedTelegram}
                       onJoinTelegram={handleJoinTelegram}
                       monetagConfig={monetagConfig}
                       appConfig={appConfig}
-                      adCampaigns={adCampaigns}
+                      rewardPerAdCoins={rewardPerAdCoins}
+                      adCooldownSeconds={adCooldownSeconds}
                       language={language}
                       onSpin={handleSpin}
                       spinCooldownLeft={spinCooldown}

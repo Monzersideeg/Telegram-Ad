@@ -19,12 +19,13 @@ interface DashboardProps {
   watchHistory: AdWatchLog[];
   onNavigateTab: (tab: string) => void;
   telegramUser: { username: string; fullName: string; isPremium: boolean };
-  onAdWatched: (reward: number, title: string) => void;
+  onWatchAd: () => Promise<{ ok: boolean; coins?: number; cooldownSec?: number; reason?: string }>;
+  rewardPerAdCoins: number;
+  adCooldownSeconds: number;
   joinedTelegram: boolean;
   onJoinTelegram: () => void;
   monetagConfig: { isEnabled: boolean };
   appConfig: AppConfig;
-  adCampaigns: AdCampaign[];
   language: 'en' | 'ru';
   onSpin: () => Promise<{ ok: boolean; rewardCoins?: number; cooldownLeft?: number }>;
   spinCooldownLeft: number;
@@ -35,12 +36,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
   watchHistory,
   onNavigateTab,
   telegramUser,
-  onAdWatched,
+  onWatchAd,
+  rewardPerAdCoins,
+  adCooldownSeconds,
   joinedTelegram,
   onJoinTelegram,
   monetagConfig,
   appConfig,
-  adCampaigns,
   language,
   onSpin,
   spinCooldownLeft,
@@ -58,6 +60,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Floating particle system for ad rewards
   const [floatingCoins, setFloatingCoins] = useState<{ id: number; amount: string }[]>([]);
+
+  // Real Monetag ad in progress + honest status line (replaces the old fake overlay)
+  const [watchingAd, setWatchingAd] = useState(false);
+  const [adStatusMsg, setAdStatusMsg] = useState<string | null>(null);
 
   // Active Ad overlay play states
   const [isPlayingAd, setIsPlayingAd] = useState(false);
@@ -136,29 +142,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setCaptchaError(false);
   };
 
-  // Click on the massive circular "WATCH AD" trigger
-  const handleWatchAdClick = () => {
-    if (cooldownTimeLeft > 0 || isPlayingAd || isAdCompleted) return;
-
-    // Pick a random campaign from dataset
-    const activeCampaigns = adCampaigns.filter(c => (c as any).isActive !== false);
-    if (activeCampaigns.length === 0) return;
-    
-    const randomIndex = Math.floor(Math.random() * activeCampaigns.length);
-    const campaign = activeCampaigns[randomIndex];
-
-    setActiveCampaign(campaign);
-    setAdTimeLeft(campaign.durationSeconds);
-    setAdProgress(100);
-    setIsPlayingAd(true);
-    setIsAdCompleted(false);
-
-    // Reset interactive parameters
-    setClickerCount(0);
-    setClickParticles([]);
-    setWheelRotation(0);
-    setMonetagStep(0);
-    setTonWalletConnected(false);
+  // Click on the massive circular "WATCH AD" trigger → opens a REAL Monetag ad.
+  const handleWatchAdClick = async () => {
+    if (cooldownTimeLeft > 0 || watchingAd || isPlayingAd || isAdCompleted) return;
+    setAdStatusMsg(null);
+    setWatchingAd(true);
+    try {
+      const res = await onWatchAd();
+      if (res.ok) {
+        const coins = res.coins ?? rewardPerAdCoins ?? 0;
+        const particleId = Date.now();
+        setFloatingCoins((prev) => [...prev, { id: particleId, amount: `+${coins}` }]);
+        setTimeout(() => {
+          setFloatingCoins((prev) => prev.filter((item) => item.id !== particleId));
+        }, 1500);
+        setCooldownTimeLeft(res.cooldownSec ?? adCooldownSeconds ?? 30);
+        setAdStatusMsg(null);
+      } else if (res.reason === "no_ads") {
+        setAdStatusMsg(language === "en" ? "No ads available right now — try again shortly." : "Сейчас нет рекламы — попробуйте чуть позже.");
+        setCooldownTimeLeft(15);
+      } else if (res.reason === "unrewarded") {
+        setAdStatusMsg(language === "en" ? "Ad viewed but not rewarded by the network." : "Реклама просмотрена, но не оплачена сетью.");
+        setCooldownTimeLeft(res.cooldownSec ?? 10);
+      } else if (res.reason === "pending") {
+        setAdStatusMsg(language === "en" ? "Reward pending confirmation…" : "Награда подтверждается…");
+      } else if (res.reason !== "busy") {
+        setAdStatusMsg(language === "en" ? "Could not load an ad. Please try again." : "Не удалось загрузить рекламу. Попробуйте ещё раз.");
+        setCooldownTimeLeft(5);
+      }
+    } finally {
+      setWatchingAd(false);
+    }
   };
 
   const handleCaptchaSubmit = (e: React.FormEvent) => {
@@ -299,15 +313,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <button
             id="watchAdBtn"
             onClick={handleWatchAdClick}
-            disabled={cooldownTimeLeft > 0 || isPlayingAd}
-            aria-label={cooldownTimeLeft > 0 ? `Watch ad locked, ${cooldownTimeLeft} seconds remaining` : "Watch ad to earn coins"}
+            disabled={cooldownTimeLeft > 0 || watchingAd || isPlayingAd}
+            aria-label={watchingAd ? "Loading ad" : cooldownTimeLeft > 0 ? `Watch ad locked, ${cooldownTimeLeft} seconds remaining` : "Watch ad to earn coins"}
             className={`relative w-36 h-36 rounded-full flex flex-col items-center justify-center gap-1 font-bold transition-all duration-300 select-none shadow-xl border border-emerald-400/20 active:scale-95 cursor-pointer outline-none ${
               cooldownTimeLeft > 0
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
                 : 'btn-primary bg-gradient-to-br from-emerald-400 to-green-500 text-white pulse-ring hover:scale-[1.02]'
             }`}
           >
-            {cooldownTimeLeft > 0 ? (
+            {watchingAd ? (
+              <>
+                <RefreshCw className="w-8 h-8 text-white mb-1 animate-spin" />
+                <span className="text-[10px] tracking-wider uppercase font-extrabold">{language === 'en' ? 'Loading ad…' : 'Загрузка…'}</span>
+                <span className="text-[9px] opacity-90 font-mono">{language === 'en' ? 'stay here' : 'не закрывайте'}</span>
+              </>
+            ) : cooldownTimeLeft > 0 ? (
               <>
                 <Lock className="w-7 h-7 text-slate-300 mb-1" />
                 <span className="text-xs tracking-wider uppercase font-mono">{cooldownTimeLeft}s</span>
@@ -319,7 +339,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <Play className="w-6 h-6 fill-current text-white translate-x-0.5" />
                 </div>
                 <span className="text-xs tracking-wider uppercase font-extrabold">{t.watchAd}</span>
-                <span className="text-[9px] opacity-90 font-mono">+{Math.round((adCampaigns.find(c => (c as any).isActive !== false)?.rewardAmount ?? 0.15) * appConfig.usdToCoinRate)} {appConfig.currencySymbol}</span>
+                <span className="text-[9px] opacity-90 font-mono">+{rewardPerAdCoins || Math.round(0.01 * appConfig.usdToCoinRate)} {appConfig.currencySymbol}</span>
               </>
             )}
           </button>
@@ -353,6 +373,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {t.adsWatchedToday}: <span className="font-bold text-slate-800">{stats.adsWatchedCount}/50</span>
           </div>
         </div>
+        {adStatusMsg && (
+          <p className="mt-2 text-[11px] text-center text-amber-600 font-semibold px-3 leading-snug">{adStatusMsg}</p>
+        )}
       </div>
 
       {/* 3. Dual Stats Grid (exactly matching sketch metadata counts) */}
@@ -675,7 +698,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* ========================================================= */}
       {/* ============ LIVE HIGH-FIDELITY AD OVERLAY ============== */}
       {/* ========================================================= */}
-      {activeCampaign && (isPlayingAd || isAdCompleted) && (
+      {/* [DISABLED] old client-side fake ad overlay — replaced by the real Monetag
+          interstitial opened from App.handleWatchAd. Kept as dead code (never renders). */}
+      {false && activeCampaign && (isPlayingAd || isAdCompleted) && (
         <div className="ad-overlay fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-[9999] flex items-center justify-center p-5 animate-in fade-in duration-200">
           
           {/* Main Ad Box */}

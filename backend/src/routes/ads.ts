@@ -51,7 +51,15 @@ adsRouter.post(
       throw new HttpError(429, "ad_in_progress", "Finish your current ad first");
     }
 
-    const sessionId = crypto.randomUUID();
+    // The client generates the session id and passes it to the Monetag SDK *synchronously*
+    // inside the tap (to preserve the user-gesture the interstitial needs). It then sends
+    // that same id here so the S2S postback (ymid = sessionId) routes to this row. We only
+    // accept a well-formed UUID; anything else falls back to a server-generated id.
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const proposed =
+      typeof req.body?.sessionId === "string" ? req.body.sessionId.trim() : "";
+    const sessionId = UUID_RE.test(proposed) ? proposed : crypto.randomUUID();
     await query(
       `INSERT INTO ad_views (user_id, session_id, status, ip)
        VALUES ($1, $2, 'pending', $3)`,
