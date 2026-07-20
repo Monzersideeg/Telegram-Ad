@@ -59,9 +59,10 @@ app.use(errorHandler);
 
 export { app };
 
-// Start listening when run directly. Tests import { app } with START_SERVER=false
-// and bind their own ephemeral port.
-if (process.env.START_SERVER !== "false") {
+// Start listening when run as a normal server. On Vercel (serverless), VERCEL is set
+// and the exported `app` is used as the request handler instead (see api/[...path].ts).
+// Tests import { app } with START_SERVER=false and bind their own ephemeral port.
+if (!process.env.VERCEL && process.env.START_SERVER !== "false") {
   app.listen(env.port, () => {
     logger.info(`API listening on :${env.port} (${env.nodeEnv})`);
   });
