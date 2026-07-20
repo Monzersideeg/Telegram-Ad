@@ -1,0 +1,41 @@
+{
+  "name": "earn-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "bot": "tsx watch src/bot.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "start:bot": "node dist/bot.js",
+    "migrate": "tsx src/db/migrate.ts",
+    "check:db": "tsx scripts/check-db.ts",
+    "db:setup": "npm run migrate && npm run check:db",
+    "typecheck": "tsc --noEmit",
+    "test:initdata": "tsx scripts/test-initdata.ts",
+    "test:games": "tsx scripts/test-games-pgmem.ts",
+    "test:monetag": "tsx scripts/test-monetag-live.ts",
+    "test:integration": "tsx scripts/integration-supabase.ts"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.4.1",
+    "pg": "^8.12.0",
+    "telegraf": "^4.16.3"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.7",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.6",
+    "pg-mem": "^3.0.14",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.3"
+  }
+}

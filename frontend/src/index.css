@@ -1,0 +1,173 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "DM Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.15);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.3);
+}
+
+/* Custom animations */
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 4s infinite ease-in-out;
+}
+
+/* Reference sketch custom animations */
+@keyframes pulseRing {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 148, 0.55); }
+  70% { box-shadow: 0 0 0 22px rgba(34, 197, 148, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 148, 0); }
+}
+
+.pulse-ring {
+  animation: pulseRing 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes coinFloat {
+  0% { opacity: 0; transform: translate(-50%, 20px) scale(0.6); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -110px) scale(1.3); }
+}
+
+.coin-float {
+  animation: coinFloat 1.4s ease-out forwards;
+}
+
+@keyframes spinCoin {
+  0% { transform: rotateY(0deg); }
+  100% { transform: rotateY(360deg); }
+}
+
+.spin-coin {
+  animation: spinCoin 6s linear infinite;
+}
+
+@keyframes shine {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.shine {
+  background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: shine 3s linear infinite;
+}
+
+/* Glassmorphism custom classes */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+.glass-panel-light {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.glass-panel-emerald {
+  background: rgba(16, 185, 129, 0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+}
+
+.glass-panel-amber {
+  background: rgba(245, 158, 11, 0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(245, 158, 11, 0.15);
+}
+
+.glass-panel-indigo {
+  background: rgba(99, 102, 241, 0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+/* ============================================================
+   Accessibility & platform polish (UI/UX Pro Max audit fixes)
+   ============================================================ */
+
+/* Readable base typography */
+html { scroll-behavior: smooth; }
+body {
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Restore visible keyboard focus. The template strips outlines with `outline-none`;
+   this rule is un-layered so it wins over Tailwind's layered utilities on :focus-visible. */
+:focus-visible {
+  outline: 2px solid #059669; /* emerald-600 */
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Safe-area helpers for Telegram Mini App / notched devices (needs viewport-fit=cover). */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* Minimum readable font floor for body text */
+.text-floor { font-size: max(0.6875rem, 11px); } /* 11px */
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Contrast fix (WCAG AA): the template's slate-300/400 labels fail 4.5:1 on light
+   surfaces. Darken them ONLY inside light cards (white / slate-50 / slate-100) so
+   dark panels (ad player, modals, admin) keep their light-on-dark contrast. */
+.bg-white .text-slate-300,
+.bg-slate-50 .text-slate-300,
+.bg-slate-100 .text-slate-300,
+.bg-white .text-slate-400,
+.bg-slate-50 .text-slate-400,
+.bg-slate-100 .text-slate-400 {
+  color: #64748b; /* slate-500 ≈ 4.7:1 on white */
+}
+
+/* Readability floor (UI/UX Pro Max: avoid text < 12px). The reference template uses
+   many 7–10px captions/badges; lift them to a readable minimum. Badges expand slightly
+   and already-truncated labels truncate a touch earlier — neither overflows. */
+.text-\[7px\] { font-size: 10px; }
+.text-\[8px\] { font-size: 10px; }
+.text-\[9px\] { font-size: 11px; }
+.text-\[10px\] { font-size: 11px; }

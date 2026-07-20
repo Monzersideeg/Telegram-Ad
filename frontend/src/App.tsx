@@ -1,0 +1,929 @@
+/**
+ * App orchestrator — ports the reference UI skeleton, wired to the EXISTING backend:
+ *  - Auth: Telegram initData (auto-login inside Telegram; Landing page outside).
+ *  - Data: /api/auth/me, /api/ledger/*, /api/withdrawals, /api/referrals.
+ *  - Ads: real Monetag Rewarded Interstitial + server-to-server postback crediting.
+ *  - Games (Lucky Spin / Missions / Arena / check-in): client-side simulations only.
+ * The backend is unchanged; coin <-> USD conversion uses config.coinsPerUsd.
+ */
+
+import { useState, useEffect } from "react";
+import {
+  Play, Users, Trophy, Wallet, ShieldCheck, CheckSquare,
+  ShieldCheck as ShieldIcon, Zap, Check,
+} from "lucide-react";
+
+import { Header } from "./components/Header";
+import { Dashboard } from "./components/Dashboard";
+import { Tasks } from "./components/Tasks";
+import { Referrals } from "./components/Referrals";
+import { Leaderboard } from "./components/Leaderboard";
+import { Payout } from "./components/Payout";
+import { CheckInCard } from "./components/CheckInCard";
+import { MyAdmin } from "./components/admin/MyAdmin";
+import { LandingPage } from "./components/public/LandingPage";
+import { PrivacyPolicy } from "./components/public/PrivacyPolicy";
+import { TermsOfService } from "./components/public/TermsOfService";
+
+import {
+  UserStats, MonetagConfig, PayoutRequest, ReferredFriend, AdWatchLog, AppConfig, AdCampaign, LeaderboardUser,
+} from "./types";
+import { MOCK_REFERRED_FRIENDS, SIMULATED_AD_CAMPAIGNS } from "./data";
+import { isSoundEnabled, setSoundEnabled, playClickSound, playSuccessSound } from "./utils/soundEffects";
+import { fireCelebrationConfetti, fireLevelUpConfetti } from "./utils/confetti";
+import { txLabel } from "./lib/format";
+
+import { initTelegram } from "./lib/telegram";
+import { api, apiErrorMessage } from "./lib/api";
+import { isDevAdMode, preloadAd, showRewardedAd, simulateAdDev } from "./lib/monetag";
+
+const TELEGRAM_APP_URL = "https://t.me/AcEarn_bot/app";
+
+/** Shape of GET /api/auth/me from the existing backend. */
+interface MeResponse {
+  user: { id: number; telegramId: number; username: string | null; firstName: string | null; photoUrl: string | null };
+  balance: number; // coins
+  streakDays: number;
+  referralLink: string;
+  isAdmin: boolean;
+  config: {
+    rewardPerAd: number;
+    minWithdrawal: number; // coins
+    coinsPerUsd: number;
+    adCooldownSeconds: number;
+    maxAdsPerDay: number;
+    referralBonusPct: number;
+    monetagZoneId: string;
+  };
+}
+
+export default function App() {
+  // Navigation: 'landing' | 'dashboard' | 'admin' | 'privacy' | 'terms'
+  const [currentPath, setCurrentPath] = useState<string>("landing");
+  const [activeTab, setActiveTab] = useState<string>("home");
+  const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
+  const [language, setLanguage] = useState<"en" | "ru">("en");
+
+  // Auth (Telegram initData) — replaces the reference's JWT flow.
+  const [loading, setLoading] = useState<boolean>(true);
+  const [authed, setAuthed] = useState<boolean>(false);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [referralLink, setReferralLink] = useState<string>(TELEGRAM_APP_URL);
+
+  const [knockCount, setKnockCount] = useState<number>(0);
+
+  const [appConfig, setAppConfig] = useState<AppConfig>({
+    appName: "AcEarn",
+    appDescription: "Watch rewarded ads, earn coins, and cash out. Every coin is backed by a verified server-to-server postback.",
+    currencySymbol: "ACN",
+    usdToCoinRate: 1000,
+    enableTasks: true,
+    enableFriends: true,
+    enableArena: true,
+    enableWallet: true,
+    enableCaptcha: true,
+    joinTelegramReward: 0.1,
+    watch10AdsReward: 0.05,
+    invite3FriendsReward: 0.3,
+    minWithdrawal: 1.0,
+    allowedCurrencies: ["TON", "USDT", "TRX", "STARS"],
+  });
+
+  const [adCampaigns] = useState<AdCampaign[]>(SIMULATED_AD_CAMPAIGNS);
+
+  const [stats, setStats] = useState<UserStats>({
+    balance: 0,
+    lifetimeEarnings: 0,
+    adsWatchedCount: 0,
+    referralCount: 0,
+    referralEarnings: 0,
+    totalPayouts: 0,
+  });
+
+  const [streak, setStreak] = useState<number>(1);
+  const [checkedInToday, setCheckedInToday] = useState<boolean>(false);
+
+  // Mission states (client-side simulations)
+  const [joinedTelegram, setJoinedTelegram] = useState<boolean>(false);
+  const [claimedWatch10, setClaimedWatch10] = useState<boolean>(false);
+  const [claimedInvite3, setClaimedInvite3] = useState<boolean>(false);
+
+  const [levelUpData, setLevelUpData] = useState<{ newLevel: number; oldLevel: number } | null>(null);
+  const [postbackLogs, setPostbackLogs] = useState<string[]>([]);
+
+  const [monetagConfig, setMonetagConfig] = useState<MonetagConfig>({
+    smartlinkUrl: "",
+    popunderZoneId: "",
+    inPagePushZoneId: "",
+    interstitialZoneId: "",
+    isEnabled: false,
+  });
+
+  const [telegramUser, setTelegramUser] = useState({ username: "anonymous", fullName: "Guest User", isPremium: false });
+  const [friends, setFriends] = useState<ReferredFriend[]>(MOCK_REFERRED_FRIENDS);
+  const [watchHistory, setWatchHistory] = useState<AdWatchLog[]>([]);
+  const [payoutHistory, setPayoutHistory] = useState<PayoutRequest[]>([]);
+
+  // Game features (backend-driven)
+  const [myTelegramId, setMyTelegramId] = useState<number>(0);
+  const [missions, setMissions] = useState<{ id: string; reward: number; claimed: boolean; eligible: boolean; progress: number; target: number }[]>([]);
+  const [leaders, setLeaders] = useState<LeaderboardUser[]>([]);
+  const [myRank, setMyRank] = useState<{ rank: number; earned: number; activeReferralCount: number }>({ rank: 0, earned: 0, activeReferralCount: 0 });
+  const [checkin, setCheckin] = useState<{ streakDays: number; checkedInToday: boolean; nextReward: number }>({ streakDays: 1, checkedInToday: false, nextReward: 0 });
+  const [spinCooldown, setSpinCooldown] = useState<number>(0);
+  const [busyAction, setBusyAction] = useState<boolean>(false);
+
+  // ----- helpers -----
+  const addTerminalLog = (lines: string[]) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const formatted = lines.map((l) => `[${timestamp}] ${l}`);
+    setPostbackLogs((prev) => [...prev, ...formatted].slice(-24));
+  };
+
+  const navigateTo = (pathName: string) => {
+    // Outside Telegram, the "app" routes open the Telegram Mini App link instead.
+    if (!authed && (pathName === "/dashboard" || pathName === "/login" || pathName === "/admin")) {
+      window.open(TELEGRAM_APP_URL, "_blank");
+      return;
+    }
+    window.location.hash = `#${pathName}`;
+  };
+
+  const handleSecretKnock = () => {
+    const next = knockCount + 1;
+    setKnockCount(next);
+    if (next >= 5) {
+      setKnockCount(0);
+      navigateTo("/admin");
+    }
+  };
+
+  // ----- hash router -----
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash === "#/privacy") setCurrentPath("privacy");
+      else if (hash === "#/terms") setCurrentPath("terms");
+      else if (hash === "#/dashboard") setCurrentPath("dashboard");
+      else if (hash === "#/admin/dashboard" || hash === "#/admin") setCurrentPath("admin");
+      else setCurrentPath("landing");
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    handleHashChange();
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  // ----- data loading from the existing backend -----
+  const loadHistory = async (rate: number) => {
+    try {
+      const { data } = await api.get<{ items: { id: number; type: string; amount: number; created_at: string }[] }>(
+        "/api/ledger/transactions?limit=100"
+      );
+      const txs = data.items || [];
+      setWatchHistory(
+        txs.map((t) => ({
+          id: String(t.id),
+          campaignId: t.type,
+          title: txLabel(t.type),
+          reward: t.amount / rate,
+          timestamp: t.created_at,
+        }))
+      );
+      const adsCount = txs.filter((t) => t.type === "ad_reward").length;
+      const refEarn = txs.filter((t) => t.type === "referral_bonus").reduce((s, t) => s + t.amount, 0) / rate;
+      setStats((prev) => ({ ...prev, adsWatchedCount: adsCount, referralEarnings: refEarn }));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const loadWithdrawals = async (rate: number) => {
+    try {
+      const { data } = await api.get<{
+        items: { id: number; amount: number; method: string; destination: string; status: string; created_at: string }[];
+      }>("/api/withdrawals");
+      const items = data.items || [];
+      const statusMap: Record<string, PayoutRequest["status"]> = {
+        pending: "Pending",
+        approved: "Completed",
+        paid: "Completed",
+        rejected: "Rejected",
+      };
+      setPayoutHistory(
+        items.map((w) => {
+          const m = /^\[([A-Z]+)\]\s*/.exec(w.destination);
+          const currency = (m?.[1] || w.method || "USDT") as PayoutRequest["currency"];
+          const address = w.destination.replace(/^\[[A-Z]+\]\s*/, "");
+          return {
+            id: String(w.id),
+            amount: w.amount / rate,
+            currency,
+            address,
+            requestDate: w.created_at,
+            status: statusMap[w.status] || "Pending",
+          };
+        })
+      );
+      const paidSum = items
+        .filter((w) => w.status === "paid" || w.status === "approved")
+        .reduce((s, w) => s + w.amount, 0) / rate;
+      setStats((prev) => ({ ...prev, totalPayouts: paidSum }));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const loadReferrals = async () => {
+    try {
+      const { data } = await api.get<{
+        count: number;
+        earned: number;
+        recent: { username: string | null; first_name: string | null; created_at: string }[];
+      }>("/api/referrals");
+      setStats((prev) => ({ ...prev, referralCount: data.count }));
+      const real: ReferredFriend[] = (data.recent || []).map((r, i) => ({
+        id: `f_${i}`,
+        username: r.username || r.first_name || "friend",
+        fullName: r.first_name || r.username || "Friend",
+        joinDate: r.created_at.split("T")[0],
+        totalEarned: 0,
+        commissionContributed: 0,
+      }));
+      setFriends(real.length ? real : MOCK_REFERRED_FRIENDS);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const loadMissions = async (rate: number) => {
+    try {
+      const { data } = await api.get<{ missions: { id: string; reward: number; claimed: boolean; eligible: boolean; progress: number; target: number }[] }>("/api/missions");
+      const ms = data.missions || [];
+      setMissions(ms);
+      setJoinedTelegram(ms.find((m) => m.id === "join_telegram")?.claimed ?? false);
+      setClaimedWatch10(ms.find((m) => m.id === "watch_10_ads")?.claimed ?? false);
+      setClaimedInvite3(ms.find((m) => m.id === "invite_3_friends")?.claimed ?? false);
+      const rw = (id: string) => ms.find((m) => m.id === id)?.reward ?? 0;
+      setAppConfig((prev) => ({
+        ...prev,
+        joinTelegramReward: rw("join_telegram") / rate,
+        watch10AdsReward: rw("watch_10_ads") / rate,
+        invite3FriendsReward: rw("invite_3_friends") / rate,
+      }));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const loadLeaderboard = async (rate: number, telegramId: number) => {
+    try {
+      const { data } = await api.get<{
+        leaders: { telegramId: number; username: string | null; firstName: string | null; earned: number; referralCount: number; activeReferralCount: number }[];
+        me: { rank: number; earned: number; activeReferralCount: number };
+        coinsPerUsd: number;
+      }>("/api/leaderboard?limit=50");
+      const r = data.coinsPerUsd || rate;
+      setLeaders(
+        (data.leaders || []).map((l, i) => ({
+          rank: i + 1,
+          username: l.username || `user_${l.telegramId}`,
+          fullName: l.firstName || l.username || "User",
+          avatarSeed: l.username || String(l.telegramId),
+          totalEarned: l.earned / r,
+          referralCount: l.referralCount,
+          activeReferralCount: l.activeReferralCount,
+          isCurrentUser: l.telegramId === telegramId,
+        }))
+      );
+      setMyRank({ rank: data.me.rank, earned: data.me.earned, activeReferralCount: data.me.activeReferralCount });
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const loadCheckin = async () => {
+    try {
+      const { data } = await api.get<{ streakDays: number; checkedInToday: boolean; nextReward: number }>("/api/streak");
+      setCheckin({ streakDays: data.streakDays, checkedInToday: data.checkedInToday, nextReward: data.nextReward });
+      setStreak(data.streakDays);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const loadSpin = async () => {
+    try {
+      const { data } = await api.get<{ retryAfterSec: number }>("/api/spin");
+      setSpinCooldown(data.retryAfterSec ?? 0);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const loadApp = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get<MeResponse>("/api/auth/me");
+      const rate = data.config.coinsPerUsd || 1000;
+      const balUsd = data.balance / rate;
+
+      setAuthed(true);
+      setIsAdmin(!!data.isAdmin);
+      setReferralLink(data.referralLink);
+      setTelegramUser({
+        username: data.user.username || "telegram_user",
+        fullName: data.user.firstName || "User",
+        isPremium: false,
+      });
+      setAppConfig((prev) => ({
+        ...prev,
+        usdToCoinRate: rate,
+        minWithdrawal: data.config.minWithdrawal / rate,
+      }));
+      setMonetagConfig((prev) => ({
+        ...prev,
+        interstitialZoneId: data.config.monetagZoneId,
+        isEnabled: !isDevAdMode(data.config.monetagZoneId),
+      }));
+      setStats((prev) => ({
+        ...prev,
+        balance: balUsd,
+        lifetimeEarnings: Math.max(balUsd, prev.lifetimeEarnings),
+      }));
+      setStreak(data.streakDays || 1);
+      setMyTelegramId(data.user.telegramId);
+
+      loadHistory(rate);
+      loadWithdrawals(rate);
+      loadReferrals();
+      loadMissions(rate);
+      loadLeaderboard(rate, data.user.telegramId);
+      loadCheckin();
+      loadSpin();
+
+      if (!isDevAdMode(data.config.monetagZoneId)) preloadAd(data.config.monetagZoneId);
+
+      addTerminalLog([
+        "[SYSTEM] Telegram initData verified (HMAC-SHA256).",
+        `[SYSTEM] Session linked to @${data.user.username || data.user.telegramId}.`,
+        "[SYSTEM] Monetag rewarded engine ready. Awaiting S2S postbacks.",
+      ]);
+    } catch {
+      setAuthed(false); // outside Telegram / not authorized -> Landing page
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    initTelegram();
+    loadApp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-login: once authed, go straight to the dashboard.
+  useEffect(() => {
+    if (!loading && authed && (currentPath === "landing")) {
+      window.location.hash = "#/dashboard";
+    }
+  }, [loading, authed, currentPath]);
+
+  // Poll a watch session until the S2S postback settles it.
+  const pollAdStatus = async (sessionId: string): Promise<{ status: string; reward: number } | null> => {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        const { data } = await api.get<{ status: string; reward: number }>(`/api/ads/status/${sessionId}`);
+        if (data.status === "confirmed" || data.status === "rejected" || data.status === "unrewarded") return data;
+      } catch {
+        /* retry */
+      }
+    }
+    return null;
+  };
+
+  // ----- sound -----
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabledState(next);
+    setSoundEnabled(next);
+    if (next) setTimeout(() => playClickSound(), 50);
+  };
+
+  const handleNavigateTab = (tab: string) => {
+    setActiveTab(tab);
+    playClickSound();
+  };
+
+  // ----- REAL ad reward flow (Monetag rewarded interstitial + S2S postback) -----
+  const handleAdWatched = async (_reward: number, title: string) => {
+    const rate = appConfig.usdToCoinRate;
+    addTerminalLog(["POST /api/ads/start → opening watch session…"]);
+    try {
+      const { data } = await api.post<{ sessionId: string; zoneId: string; ymid: string; requestVar: string }>(
+        "/api/ads/start"
+      );
+      const { sessionId, zoneId, ymid, requestVar } = data;
+
+      if (isDevAdMode(zoneId)) {
+        await simulateAdDev();
+        await api.post("/api/dev/simulate-postback", { sessionId }).catch(() => undefined);
+      } else {
+        const outcome = await showRewardedAd({ zoneId, ymid, requestVar });
+        if (!outcome.completed) {
+          addTerminalLog([`✗ Ad unavailable: ${outcome.error || "no feed"}`]);
+          return;
+        }
+      }
+
+      addTerminalLog([`GET /api/postback/monetag?ymid=${sessionId.slice(0, 8)}… → awaiting S2S confirmation…`]);
+      const status = await pollAdStatus(sessionId);
+
+      if (status?.status === "confirmed") {
+        const earnedUsd = status.reward / rate;
+        const b = await api.get<{ balance: number }>("/api/ledger/balance");
+        const newBalUsd = b.data.balance / rate;
+
+        const oldLevel = Math.floor(stats.adsWatchedCount / 10) + 1;
+        setStats((prev) => ({
+          ...prev,
+          balance: newBalUsd,
+          lifetimeEarnings: prev.lifetimeEarnings + earnedUsd,
+          adsWatchedCount: prev.adsWatchedCount + 1,
+        }));
+        const newLevel = Math.floor((stats.adsWatchedCount + 1) / 10) + 1;
+        if (newLevel > oldLevel) {
+          setTimeout(() => {
+            setLevelUpData({ newLevel, oldLevel });
+            fireLevelUpConfetti();
+          }, 600);
+        }
+
+        setWatchHistory((prev) => [
+          { id: `log_${Date.now()}`, campaignId: "ad_reward", title: title || "Rewarded Ad", reward: earnedUsd, timestamp: new Date().toISOString() },
+          ...prev,
+        ]);
+        addTerminalLog([`✓ S2S postback verified (valued). Credited +${status.reward} ${appConfig.currencySymbol}.`]);
+        playSuccessSound();
+      } else if (status?.status === "unrewarded") {
+        addTerminalLog(["⚠ Ad viewed but not valued (unpaid traffic). No reward credited."]);
+      } else {
+        addTerminalLog(["⏳ Reward pending confirmation — balance will sync shortly."]);
+        api.get<{ balance: number }>("/api/ledger/balance")
+          .then((b) => setStats((prev) => ({ ...prev, balance: b.data.balance / rate })))
+          .catch(() => undefined);
+      }
+    } catch (err) {
+      addTerminalLog([`✗ ${apiErrorMessage(err)}`]);
+    }
+  };
+
+  // ----- daily check-in (backend) -----
+  const handleCheckIn = async () => {
+    if (busyAction) return;
+    setBusyAction(true);
+    try {
+      const { data } = await api.post<{ alreadyCheckedIn: boolean; streakDays: number; reward: number; balance: number }>("/api/streak/checkin");
+      const rate = appConfig.usdToCoinRate;
+      if (data.alreadyCheckedIn) {
+        addTerminalLog(["Already checked in today."]);
+      } else {
+        setStats((prev) => ({ ...prev, balance: data.balance / rate, lifetimeEarnings: prev.lifetimeEarnings + data.reward / rate }));
+        setStreak(data.streakDays);
+        setCheckin({ streakDays: data.streakDays, checkedInToday: true, nextReward: data.reward });
+        setWatchHistory((prev) => [
+          { id: `checkin_${Date.now()}`, campaignId: "streak_bonus", title: `Daily Check-In (Day ${data.streakDays})`, reward: data.reward / rate, timestamp: new Date().toISOString() },
+          ...prev,
+        ]);
+        addTerminalLog([`✓ Daily check-in. +${data.reward} ${appConfig.currencySymbol} (streak ${data.streakDays}).`]);
+        playSuccessSound();
+        fireCelebrationConfetti();
+      }
+    } catch (err) {
+      addTerminalLog([`✗ ${apiErrorMessage(err)}`]);
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
+  // ----- lucky spin (backend, server-authoritative) -----
+  const handleSpin = async (): Promise<{ ok: boolean; rewardCoins?: number; cooldownLeft?: number }> => {
+    try {
+      const { data } = await api.post<{ reward: number; balance: number; cooldownSeconds: number }>("/api/spin");
+      const rate = appConfig.usdToCoinRate;
+      setStats((prev) => ({ ...prev, balance: data.balance / rate, lifetimeEarnings: prev.lifetimeEarnings + data.reward / rate }));
+      setSpinCooldown(data.cooldownSeconds ?? 24 * 60 * 60);
+      setWatchHistory((prev) => [
+        { id: `spin_${Date.now()}`, campaignId: "spin_reward", title: "Lucky Spin", reward: data.reward / rate, timestamp: new Date().toISOString() },
+        ...prev,
+      ]);
+      addTerminalLog([`✓ Lucky Spin won +${data.reward} ${appConfig.currencySymbol}.`]);
+      playSuccessSound();
+      fireCelebrationConfetti();
+      return { ok: true, rewardCoins: data.reward, cooldownLeft: data.cooldownSeconds ?? 24 * 60 * 60 };
+    } catch (err) {
+      const retry = (err as { response?: { data?: { meta?: { retryAfterSec?: number } } } })?.response?.data?.meta?.retryAfterSec;
+      if (retry) {
+        setSpinCooldown(Number(retry));
+        return { ok: false, cooldownLeft: Number(retry) };
+      }
+      addTerminalLog([`✗ ${apiErrorMessage(err)}`]);
+      return { ok: false };
+    }
+  };
+
+  // ----- one-time missions (backend) -----
+  const claimMission = async (missionId: string) => {
+    try {
+      const { data } = await api.post<{ reward: number; balance: number }>("/api/missions/claim", { missionId });
+      const rate = appConfig.usdToCoinRate;
+      setStats((prev) => ({ ...prev, balance: data.balance / rate, lifetimeEarnings: prev.lifetimeEarnings + data.reward / rate }));
+      if (missionId === "join_telegram") setJoinedTelegram(true);
+      if (missionId === "watch_10_ads") setClaimedWatch10(true);
+      if (missionId === "invite_3_friends") setClaimedInvite3(true);
+      setMissions((prev) => prev.map((m) => (m.id === missionId ? { ...m, claimed: true } : m)));
+      setWatchHistory((prev) => [
+        { id: `mission_${Date.now()}`, campaignId: "mission_reward", title: `Mission: ${missionId.replace(/_/g, " ")}`, reward: data.reward / rate, timestamp: new Date().toISOString() },
+        ...prev,
+      ]);
+      addTerminalLog([`✓ Mission claimed (${missionId}). +${data.reward} ${appConfig.currencySymbol}.`]);
+      playSuccessSound();
+      fireCelebrationConfetti();
+    } catch (err) {
+      addTerminalLog([`✗ ${apiErrorMessage(err)}`]);
+      alert(apiErrorMessage(err));
+    }
+  };
+
+  const handleJoinTelegram = () => claimMission("join_telegram");
+  const handleClaimWatch10 = () => claimMission("watch_10_ads");
+  const handleClaimInvite3 = () => claimMission("invite_3_friends");
+
+  // ----- simulated invite (visual demo) -----
+  const handleInviteFriendSimulated = () => {
+    const names = ["Dmitry Volkov", "Clara Vance", "Tariq Al-Mansoor", "Li Wei", "Emma Watson"];
+    const usernames = ["dima_ton", "clara_v", "tariq_crypto", "li_earn_coin", "emma_stars"];
+    const i = Math.floor(Math.random() * names.length);
+    const chosenUsername = usernames[i] + Math.floor(Math.random() * 99);
+    const mockFriend: ReferredFriend = {
+      id: `friend_${Date.now()}`,
+      username: chosenUsername,
+      fullName: names[i],
+      joinDate: new Date().toISOString().split("T")[0],
+      totalEarned: 0,
+      commissionContributed: 0,
+    };
+    setFriends((prev) => [mockFriend, ...prev]);
+    setStats((prev) => ({ ...prev, referralCount: prev.referralCount + 1 }));
+    addTerminalLog([`EVENT /referral/invite (simulation) → @${chosenUsername} registered.`]);
+  };
+
+  // ----- REAL withdrawal -----
+  const handleWithdrawalRequest = async (amount: number, currency: string, address: string) => {
+    const rate = appConfig.usdToCoinRate;
+    const coins = Math.round(amount * rate);
+    const method = currency === "USDT" ? "USDT-TRC20" : "gift-card";
+    const destination = `[${currency}] ${address}`;
+    addTerminalLog([`POST /api/withdrawals → ${coins} ${appConfig.currencySymbol} via ${method}…`]);
+    try {
+      await api.post("/api/withdrawals", { amount: coins, method, destination });
+      const b = await api.get<{ balance: number }>("/api/ledger/balance");
+      setStats((prev) => ({ ...prev, balance: b.data.balance / rate }));
+      await loadWithdrawals(rate);
+      addTerminalLog([`✓ Withdrawal submitted. Status: pending admin review.`]);
+      playSuccessSound();
+    } catch (err) {
+      addTerminalLog([`✗ Withdrawal failed: ${apiErrorMessage(err)}`]);
+      alert(apiErrorMessage(err));
+    }
+  };
+
+  // Refresh real withdrawal statuses (replaces the reference's mock "confirm").
+  const handlePayoutApproval = () => {
+    loadWithdrawals(appConfig.usdToCoinRate);
+    addTerminalLog(["↻ Refreshing withdrawal statuses from ledger…"]);
+  };
+
+  const handleLogout = () => {
+    setAuthed(false);
+    navigateTo("/");
+    window.location.hash = "";
+  };
+
+  const handleUpdateMonetag = (newConfig: MonetagConfig) => {
+    // Local-only (backend monetization config is managed via env on the server).
+    setMonetagConfig(newConfig);
+  };
+
+  // =========================================================
+  // ROUTER OUTLET
+  // =========================================================
+  if (currentPath === "privacy") {
+    return <PrivacyPolicy appConfig={appConfig} onNavigate={navigateTo} language={language} />;
+  }
+  if (currentPath === "terms") {
+    return <TermsOfService appConfig={appConfig} onNavigate={navigateTo} language={language} />;
+  }
+  if (currentPath === "admin") {
+    if (!authed || !isAdmin) {
+      return (
+        <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center text-white space-y-4 p-6">
+          <ShieldIcon className="w-12 h-12 text-red-500 animate-pulse" />
+          <h2 className="text-sm uppercase tracking-widest text-slate-400 text-center">
+            {authed ? "Your account is not an administrator." : "Authenticate via Telegram to continue."}
+          </h2>
+          <button
+            onClick={() => navigateTo(authed ? "/dashboard" : "/login")}
+            className="px-4 py-2 bg-emerald-500 text-slate-950 text-xs font-bold rounded-xl cursor-pointer"
+          >
+            {authed ? "Back to App" : "Open in Telegram"}
+          </button>
+        </div>
+      );
+    }
+    return <MyAdmin onLogout={handleLogout} />;
+  }
+
+  // Loading splash
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#f0f8ff] flex flex-col items-center justify-center space-y-4">
+        <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Loading AcEarn…</p>
+      </div>
+    );
+  }
+
+  // Not authed (outside Telegram) → Landing page
+  if (!authed || currentPath === "landing") {
+    if (!authed) {
+      return <LandingPage appConfig={appConfig} onNavigate={navigateTo} language={language} />;
+    }
+  }
+
+  // DEFAULT: authenticated dashboard
+  return (
+    <div className="min-h-screen bg-[#f0f8ff] font-sans flex items-center justify-center p-0 md:p-8 lg:p-12 relative overflow-hidden select-none">
+      <div className="absolute top-[5%] left-[5%] w-[400px] h-[400px] rounded-full bg-emerald-500/10 blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-[5%] right-[5%] w-[450px] h-[450px] rounded-full bg-green-500/10 blur-[120px] pointer-events-none" />
+
+      <div className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10 h-full">
+        {/* LEFT SIDEBAR */}
+        <div className="hidden lg:block lg:col-span-3 space-y-6 text-slate-800">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 cursor-pointer select-none" onClick={handleSecretKnock}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-emerald-100 border border-emerald-200">
+                <Zap className="w-5 h-5 text-emerald-700 fill-emerald-500 animate-pulse" />
+              </div>
+              <span className="font-extrabold text-xl tracking-tight text-slate-800">{appConfig.appName}</span>
+            </div>
+            <h1 className="font-extrabold text-3xl leading-tight tracking-tight text-slate-800">
+              Watch ads.<br />Earn real coins.<br /><span className="text-emerald-500">Cash out daily.</span>
+            </h1>
+            <p className="text-xs text-slate-500 leading-relaxed font-normal">
+              A Telegram Mini App powered by server-verified rewarded ads. Every coin is backed by a signed postback — no cheating, no fake clicks.
+            </p>
+          </div>
+
+          <div className="space-y-3.5 text-xs text-slate-600 font-medium">
+            {[
+              "HMAC-SHA256 initData verification",
+              "Server-to-server ad postbacks",
+              "Redis anti-fraud cooldowns",
+              "Referral bonuses · lifetime",
+            ].map((f) => (
+              <div key={f} className="flex items-center gap-3">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                  <Check className="w-4 h-4 stroke-[3]" />
+                </div>
+                <span>{f}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4 space-y-2">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">REWARD PER AD</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black text-slate-800 tracking-tight">
+                +{(appConfig.usdToCoinRate ? (10 / appConfig.usdToCoinRate) : 0.01).toFixed(3)}
+              </span>
+              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-full">valued views</span>
+            </div>
+            <p className="text-[10px] text-slate-500 leading-normal font-light">Credited only on paid (valued) postbacks.</p>
+          </div>
+        </div>
+
+        {/* CENTER */}
+        <div className="col-span-1 lg:col-span-6 flex justify-center items-center w-full">
+          <div className="w-full max-w-lg md:h-[780px] bg-[#f0f8ff] border border-slate-200 rounded-none md:rounded-[2.25rem] shadow-xl relative flex flex-col overflow-hidden h-screen md:h-auto">
+            <div className="w-full h-full flex flex-col relative">
+              <div onClick={handleSecretKnock} className="pt-safe sticky top-0 z-40 bg-white/95 flex flex-col shrink-0 select-none border-b border-slate-100">
+                <Header
+                  stats={stats}
+                  monetagConfig={monetagConfig}
+                  onUpdateMonetag={handleUpdateMonetag}
+                  telegramUser={telegramUser}
+                  soundEnabled={soundEnabled}
+                  onToggleSound={handleToggleSound}
+                  appConfig={appConfig}
+                  language={language}
+                  onLanguageChange={setLanguage}
+                />
+              </div>
+
+              <div className="flex-1 overflow-y-auto" style={{ paddingBottom: "calc(6.5rem + env(safe-area-inset-bottom, 0px))" }}>
+                {activeTab === "home" && (
+                  <>
+                    <div className="px-4 pt-3">
+                      <CheckInCard
+                        streakDays={checkin.streakDays}
+                        checkedInToday={checkin.checkedInToday}
+                        reward={checkin.nextReward}
+                        currencySymbol={appConfig.currencySymbol}
+                        busy={busyAction}
+                        onCheckIn={handleCheckIn}
+                      />
+                    </div>
+                    <Dashboard
+                      stats={stats}
+                      watchHistory={watchHistory}
+                      onNavigateTab={handleNavigateTab}
+                      telegramUser={telegramUser}
+                      onAdWatched={handleAdWatched}
+                      joinedTelegram={joinedTelegram}
+                      onJoinTelegram={handleJoinTelegram}
+                      monetagConfig={monetagConfig}
+                      appConfig={appConfig}
+                      adCampaigns={adCampaigns}
+                      language={language}
+                      onSpin={handleSpin}
+                      spinCooldownLeft={spinCooldown}
+                    />
+                  </>
+                )}
+                {activeTab === "tasks" && (
+                  <Tasks
+                    stats={stats}
+                    joinedTelegram={joinedTelegram}
+                    onJoinTelegram={handleJoinTelegram}
+                    claimedWatch10={claimedWatch10}
+                    onClaimWatch10={handleClaimWatch10}
+                    claimedInvite3={claimedInvite3}
+                    onClaimInvite3={handleClaimInvite3}
+                    onNavigateTab={handleNavigateTab}
+                    appConfig={appConfig}
+                    language={language}
+                  />
+                )}
+                {activeTab === "friends" && (
+                  <Referrals
+                    friends={friends}
+                    onInviteFriendSimulated={handleInviteFriendSimulated}
+                    referralCode={referralLink}
+                    referralEarnings={stats.referralEarnings}
+                  />
+                )}
+                {activeTab === "arena" && (
+                  <Leaderboard
+                    users={leaders}
+                    currentUserStats={{
+                      balance: stats.balance,
+                      adsCount: stats.adsWatchedCount,
+                      referralCount: stats.referralCount,
+                      activeReferralCount: myRank.activeReferralCount,
+                      rank: myRank.rank,
+                    }}
+                    telegramUser={telegramUser}
+                  />
+                )}
+                {activeTab === "wallet" && (
+                  <Payout
+                    balance={stats.balance}
+                    payoutHistory={payoutHistory}
+                    onSubmitPayout={handleWithdrawalRequest}
+                    onSimulateApprove={handlePayoutApproval}
+                    appConfig={appConfig}
+                  />
+                )}
+              </div>
+
+              {/* BOTTOM NAV */}
+              <nav
+                aria-label="Primary navigation"
+                className="absolute left-4 right-4 bg-white/90 backdrop-blur border border-slate-200/80 rounded-2xl p-1.5 flex justify-around items-center z-40 shadow-md"
+                style={{ bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}
+              >
+                {[
+                  { id: "home", label: "Earn", Icon: Play },
+                  { id: "tasks", label: "Missions", Icon: CheckSquare },
+                  { id: "friends", label: "Friends", Icon: Users },
+                  { id: "arena", label: "Arena", Icon: Trophy },
+                  { id: "wallet", label: "Wallet", Icon: Wallet },
+                ].map(({ id, label, Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => handleNavigateTab(id)}
+                    aria-label={label}
+                    aria-current={activeTab === id ? "page" : undefined}
+                    className={`flex flex-col items-center justify-center gap-1.5 min-h-[52px] py-2 px-3 rounded-xl transition cursor-pointer flex-1 ${
+                      activeTab === id ? "text-emerald-600 bg-emerald-50/80 font-black" : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" aria-hidden="true" />
+                    <span className="text-[11px] font-bold tracking-tight uppercase">{label}</span>
+                  </button>
+                ))}
+              </nav>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT SIDEBAR */}
+        <div className="hidden lg:block lg:col-span-3 space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm font-mono">
+            <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider">Postback Stream</span>
+            </div>
+            <div className="h-[210px] overflow-y-auto text-[10px] text-slate-600 space-y-2 select-all leading-relaxed">
+              {postbackLogs.length === 0 ? (
+                <div className="text-slate-400 text-[9px] font-medium italic">Waiting for ad postbacks…</div>
+              ) : (
+                postbackLogs.map((log, i) => {
+                  const hi = log.includes("✓") || log.includes("200") || log.includes("+") || log.includes("credited");
+                  const sys = log.includes("[SYSTEM]");
+                  return (
+                    <div key={i} className={`break-all whitespace-pre-wrap ${sys ? "text-indigo-600 font-semibold" : hi ? "text-emerald-600 font-bold" : "text-slate-500"}`}>
+                      {log}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+            <div className="text-[11px] font-black text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+              <span>Security</span>
+            </div>
+            <div className="space-y-2 text-[11px] text-slate-600 font-medium">
+              <div className="flex justify-between items-center py-0.5">
+                <span className="text-slate-500 font-normal">initData HMAC</span>
+                <span className="font-bold text-emerald-600">{authed ? "verified" : "—"}</span>
+              </div>
+              <div className="flex justify-between items-center py-0.5 border-t border-slate-50">
+                <span className="text-slate-500 font-normal">Daily streak</span>
+                <span className="font-semibold text-slate-700">{streak} day{streak === 1 ? "" : "s"}</span>
+              </div>
+              <div className="flex justify-between items-center py-0.5 border-t border-slate-50">
+                <span className="text-slate-500 font-normal">Reward crediting</span>
+                <span className="font-semibold text-slate-700">S2S postback</span>
+              </div>
+              <div className="flex justify-between items-center py-0.5 border-t border-slate-50">
+                <span className="text-slate-500 font-normal">Session</span>
+                <span className="font-bold text-emerald-600">@{telegramUser.username}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* LEVEL UP MODAL */}
+      {levelUpData && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-6 text-center space-y-4">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-white font-extrabold flex items-center justify-center text-3xl shadow-lg mx-auto animate-bounce">
+              🏆
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-xl font-extrabold text-slate-800 tracking-tight">{language === "en" ? "LEVEL UP!" : "НОВЫЙ УРОВЕНЬ!"}</h3>
+              <p className="text-xs text-slate-500 font-medium">
+                {language === "en" ? "Congratulations! You are climbing the ranks." : "Поздравляем! Вы продвигаетесь по рангам."}
+              </p>
+            </div>
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 flex items-center justify-center gap-6">
+              <div className="text-center">
+                <div className="text-[10px] text-slate-400 uppercase font-extrabold">{language === "en" ? "Previous" : "Прошлый"}</div>
+                <div className="text-2xl font-black text-slate-400">Lvl {levelUpData.oldLevel}</div>
+              </div>
+              <div className="text-2xl text-emerald-500 font-bold animate-pulse">➔</div>
+              <div className="text-center">
+                <div className="text-[10px] text-emerald-600 uppercase font-extrabold">{language === "en" ? "New Level" : "Новый Лвл"}</div>
+                <div className="text-3xl font-black text-emerald-600">Lvl {levelUpData.newLevel}</div>
+              </div>
+            </div>
+            <button
+              onClick={() => { setLevelUpData(null); playClickSound(); }}
+              className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-sm rounded-xl transition-all shadow-md active:scale-[0.98] cursor-pointer"
+            >
+              {language === "en" ? "Awesome, Let's Continue!" : "Отлично, продолжаем!"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
