@@ -42,3 +42,9 @@ coverage/
 *.sqlite
 *.db
 server_db.json
+
+# ── Vercel local config (project linkage / local env) ──
+.vercel
+**/.vercel
+.env.local
+**/.env.local

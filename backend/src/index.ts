@@ -37,6 +37,7 @@ app.use((req, _res, next) => {
 });
 
 app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+app.get("/api/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
 app.use("/api/auth", authRouter);
 app.use("/api/ads", adsRouter);
