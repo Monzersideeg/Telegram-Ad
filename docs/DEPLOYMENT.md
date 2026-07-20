@@ -25,6 +25,21 @@ plus an **optional bot** on a persistent host (Vercel can't run long-running bot
 
 ---
 
+## ✅ Deployed (live)
+
+| Service | URL |
+|---|---|
+| Backend API | `https://acearn-api.vercel.app` (`/api/health` → ok) |
+| Frontend / Mini App | `https://acearn-web.vercel.app` |
+
+To go fully live: set the **Monetag postback URL** (with your `MONETAG_POSTBACK_SECRET`) in
+zone **3415700**, and set the **Mini App URL** to `https://acearn-web.vercel.app` in @BotFather.
+The postback URL template is in Part 3 (replace the secret placeholder with your real secret —
+keep the real secret out of this committed file). The steps below document how this deployment
+was created, for reference and re-deployment.
+
+---
+
 ## Part 1 — Deploy the BACKEND (`acearn-api`)
 
 Deploy this **first** (the frontend needs its URL).
