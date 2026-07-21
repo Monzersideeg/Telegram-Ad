@@ -32,7 +32,23 @@ export async function getStreakStatus(userId: number) {
     prospectiveStreak = yday.rows[0] ? Number(yday.rows[0].streak) + 1 : 1;
   }
 
-  return { streakDays, checkedInToday, nextReward: checkinRewardFor(prospectiveStreak) };
+  // Real last-7-days check-in pattern (ending today) for the dashboard streak grid.
+  const weekRows = await query<{ day: string }>(
+    `SELECT day::text AS day FROM checkins
+     WHERE user_id = $1 AND day BETWEEN CURRENT_DATE - INTERVAL '6 days' AND CURRENT_DATE`,
+    [userId]
+  );
+  const doneSet = new Set(weekRows.rows.map((r) => r.day.slice(0, 10)));
+  const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+  const week: { dow: string; done: boolean }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() - i);
+    week.push({ dow: DOW[d.getUTCDay()], done: doneSet.has(d.toISOString().slice(0, 10)) });
+  }
+
+  return { streakDays, checkedInToday, nextReward: checkinRewardFor(prospectiveStreak), week };
 }
 
 export async function checkIn(userId: number) {

@@ -24,6 +24,9 @@ interface DashboardProps {
   adWatching: boolean;
   adMsg: string | null;
   adCooldownLeft: number;
+  maxAdsPerDay: number;
+  streakWeek: { dow: string; done: boolean }[];
+  streakDays: number;
   joinedTelegram: boolean;
   onJoinTelegram: () => void;
   monetagConfig: { isEnabled: boolean };
@@ -43,6 +46,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   adWatching,
   adMsg,
   adCooldownLeft,
+  maxAdsPerDay,
+  streakWeek,
+  streakDays,
   joinedTelegram,
   onJoinTelegram,
   monetagConfig,
@@ -345,7 +351,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="w-px h-3 bg-slate-300"></div>
           <div>
-            {t.adsWatchedToday}: <span className="font-bold text-slate-800">{stats.adsWatchedCount}/50</span>
+            {t.adsWatchedToday}: <span className="font-bold text-slate-800">{stats.adsWatchedCount}/{maxAdsPerDay || 20}</span>
           </div>
         </div>
         {adMsg && (
@@ -396,25 +402,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
           <span className="bg-amber-50 text-amber-800 border border-amber-100 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
-            🔥 {language === 'en' ? 'ON FIRE' : 'В ОГНЕ'}
+            🔥 {streakDays >= 3 ? (language === 'en' ? 'ON FIRE' : 'В ОГНЕ') : `${streakDays} ${language === 'en' ? 'DAY' : 'ДН'}`}
           </span>
         </div>
         <div className="flex items-center justify-between gap-1.5">
-          {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, idx) => {
-            const isActive = idx < 6; // Mon-Sat are active (completed) as user has a 7 days streak
-            return (
-              <div 
-                key={idx}
-                className={`flex-1 aspect-square rounded-xl flex items-center justify-center text-[10px] font-extrabold transition-all duration-300 ${
-                  isActive 
-                    ? 'bg-emerald-500 text-white shadow shadow-emerald-500/10' 
-                    : 'bg-slate-50 text-slate-400 border border-slate-200/40'
-                }`}
-              >
-                {day}
-              </div>
-            );
-          })}
+          {(streakWeek && streakWeek.length ? streakWeek : Array.from({ length: 7 }, () => ({ dow: '·', done: false }))).map((d, idx) => (
+            <div
+              key={idx}
+              title={d.done ? (language === 'en' ? 'Checked in' : 'Отметка') : (language === 'en' ? 'Missed' : 'Пропущено')}
+              className={`flex-1 aspect-square rounded-xl flex items-center justify-center text-[10px] font-extrabold transition-all duration-300 ${
+                d.done
+                  ? 'bg-emerald-500 text-white shadow shadow-emerald-500/10'
+                  : 'bg-slate-50 text-slate-400 border border-slate-200/40'
+              }`}
+            >
+              {d.dow}
+            </div>
+          ))}
         </div>
       </div>
 

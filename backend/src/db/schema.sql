@@ -105,3 +105,10 @@ CREATE TABLE IF NOT EXISTS spins (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_spins_user_created ON spins(user_id, created_at DESC);
+
+-- Profile photo bytes, persisted so we don't re-hit the Telegram Bot API on every load.
+-- Applied idempotently (also self-applied at runtime via /api/users/photo, since the
+-- Vercel serverless build does not run migrate.ts on boot).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_data BYTEA;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_content_type TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_fetched_at TIMESTAMPTZ;

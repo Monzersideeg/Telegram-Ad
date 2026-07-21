@@ -119,7 +119,7 @@ export default function App() {
     isEnabled: false,
   });
 
-  const [telegramUser, setTelegramUser] = useState({ username: "anonymous", fullName: "Guest User", isPremium: false });
+  const [telegramUser, setTelegramUser] = useState<{ username: string; fullName: string; isPremium: boolean; photoUrl: string | null }>({ username: "anonymous", fullName: "Guest User", isPremium: false, photoUrl: null });
   const [friends, setFriends] = useState<ReferredFriend[]>(MOCK_REFERRED_FRIENDS);
   const [watchHistory, setWatchHistory] = useState<AdWatchLog[]>([]);
   const [payoutHistory, setPayoutHistory] = useState<PayoutRequest[]>([]);
@@ -129,11 +129,12 @@ export default function App() {
   const [missions, setMissions] = useState<{ id: string; reward: number; claimed: boolean; eligible: boolean; progress: number; target: number }[]>([]);
   const [leaders, setLeaders] = useState<LeaderboardUser[]>([]);
   const [myRank, setMyRank] = useState<{ rank: number; earned: number; activeReferralCount: number }>({ rank: 0, earned: 0, activeReferralCount: 0 });
-  const [checkin, setCheckin] = useState<{ streakDays: number; checkedInToday: boolean; nextReward: number }>({ streakDays: 1, checkedInToday: false, nextReward: 0 });
+  const [checkin, setCheckin] = useState<{ streakDays: number; checkedInToday: boolean; nextReward: number; week: { dow: string; done: boolean }[] }>({ streakDays: 1, checkedInToday: false, nextReward: 0, week: [] });
   const [spinCooldown, setSpinCooldown] = useState<number>(0);
   const [busyAction, setBusyAction] = useState<boolean>(false);
   const [rewardPerAdCoins, setRewardPerAdCoins] = useState<number>(0);
   const [adCooldownSeconds, setAdCooldownSeconds] = useState<number>(30);
+  const [maxAdsPerDay, setMaxAdsPerDay] = useState<number>(20);
 
   // Watch-ad UI state, lifted here so it survives tab switches (Dashboard unmounts
   // when you change tabs; keeping this in App means the spinner / status / cooldown
@@ -318,8 +319,8 @@ export default function App() {
 
   const loadCheckin = async () => {
     try {
-      const { data } = await api.get<{ streakDays: number; checkedInToday: boolean; nextReward: number }>("/api/streak");
-      setCheckin({ streakDays: data.streakDays, checkedInToday: data.checkedInToday, nextReward: data.nextReward });
+      const { data } = await api.get<{ streakDays: number; checkedInToday: boolean; nextReward: number; week: { dow: string; done: boolean }[] }>("/api/streak");
+      setCheckin({ streakDays: data.streakDays, checkedInToday: data.checkedInToday, nextReward: data.nextReward, week: data.week ?? [] });
       setStreak(data.streakDays);
     } catch {
       /* ignore */
@@ -349,6 +350,7 @@ export default function App() {
         username: data.user.username || "telegram_user",
         fullName: data.user.firstName || "User",
         isPremium: false,
+        photoUrl: null,
       });
       setAppConfig((prev) => ({
         ...prev,
@@ -357,6 +359,7 @@ export default function App() {
       }));
       setRewardPerAdCoins(data.config.rewardPerAd);
       setAdCooldownSeconds(data.config.adCooldownSeconds);
+      setMaxAdsPerDay(data.config.maxAdsPerDay);
       setMonetagConfig((prev) => ({
         ...prev,
         interstitialZoneId: data.config.monetagZoneId,
@@ -369,6 +372,15 @@ export default function App() {
       }));
       setStreak(data.streakDays || 1);
       setMyTelegramId(data.user.telegramId);
+
+      // Fetch the Telegram profile photo (proxied + cached + persisted server-side).
+      api
+        .get("/api/users/photo", { responseType: "blob" })
+        .then((r) => {
+          const url = URL.createObjectURL(r.data as Blob);
+          setTelegramUser((prev) => ({ ...prev, photoUrl: url }));
+        })
+        .catch(() => undefined);
 
       loadHistory(rate);
       loadWithdrawals(rate);
@@ -859,6 +871,9 @@ export default function App() {
                       adWatching={adWatching}
                       adMsg={adMsg}
                       adCooldownLeft={adCooldownLeft}
+                      maxAdsPerDay={maxAdsPerDay}
+                      streakWeek={checkin.week}
+                      streakDays={checkin.streakDays}
                       language={language}
                       onSpin={handleSpin}
                       spinCooldownLeft={spinCooldown}

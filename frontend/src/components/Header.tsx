@@ -12,7 +12,7 @@ interface HeaderProps {
   stats: UserStats;
   monetagConfig: MonetagConfig;
   onUpdateMonetag: (config: MonetagConfig) => void;
-  telegramUser: { username: string; fullName: string; isPremium: boolean };
+  telegramUser: { username: string; fullName: string; isPremium: boolean; photoUrl: string | null };
   soundEnabled: boolean;
   onToggleSound: () => void;
   appConfig: AppConfig;
@@ -83,6 +83,12 @@ export const Header: React.FC<HeaderProps> = ({
     .substring(0, 2)
     .toUpperCase() || 'TG';
 
+  // Prefer the real Telegram display name; fall back to @handle for guests.
+  const displayName =
+    telegramUser.fullName && telegramUser.fullName !== 'Guest User'
+      ? telegramUser.fullName
+      : '@' + telegramUser.username;
+
   // Level & progress calculation
   const userLevel = Math.floor(stats.adsWatchedCount / 10) + 1;
   const adsInCurrentLevel = stats.adsWatchedCount % 10;
@@ -95,9 +101,17 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Left: User profile details */}
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
           <div className="relative shrink-0">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-extrabold text-white text-xs sm:text-sm shadow-sm bg-gradient-to-br from-emerald-400 to-green-500">
-              {initials}
-            </div>
+            {telegramUser.photoUrl ? (
+              <img
+                src={telegramUser.photoUrl}
+                alt=""
+                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover shadow-sm border border-emerald-100 bg-emerald-50"
+              />
+            ) : (
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-extrabold text-white text-xs sm:text-sm shadow-sm bg-gradient-to-br from-emerald-400 to-green-500">
+                {initials}
+              </div>
+            )}
             {telegramUser.isPremium && (
               <span className="absolute -bottom-1 -right-1 bg-amber-400 text-slate-900 rounded-full text-[7px] sm:text-[8px] h-3.5 w-3.5 sm:h-4.5 sm:w-4.5 font-bold flex items-center justify-center shadow border border-white">
                 ★
@@ -107,11 +121,8 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="min-w-0">
             <div className="text-[10px] sm:text-[11px] text-slate-500 font-bold leading-none uppercase tracking-wider mb-0.5 truncate">{t.welcomeBack}</div>
             <div className="flex items-center gap-1 flex-wrap">
-              <span className="font-extrabold text-[10px] sm:text-xs text-slate-800 leading-none truncate max-w-[65px] sm:max-w-[100px]">
-                @{telegramUser.username}
-              </span>
-              <span className="bg-emerald-50 text-emerald-700 text-[8px] font-black font-mono px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded leading-none border border-emerald-100 shrink-0 scale-90 sm:scale-100 origin-left">
-                {t.pro}
+              <span className="font-extrabold text-[10px] sm:text-xs text-slate-800 leading-none truncate max-w-[90px] sm:max-w-[140px]">
+                {displayName}
               </span>
               
               {/* Subtle network connection status badge */}

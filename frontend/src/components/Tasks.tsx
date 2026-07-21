@@ -50,12 +50,12 @@ export const Tasks: React.FC<TasksProps> = ({
   return (
     <div id="tasks-view" className="space-y-4 px-5 pb-24 pt-3">
       {/* Task Header */}
-      <div className="flex items-center justify-between mb-1">
-        <div>
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <div className="min-w-0">
           <h2 className="text-lg font-bold text-slate-800">{t.todaysMissions}</h2>
           <p className="text-xs text-slate-500">{t.completeTasksDaily}</p>
         </div>
-        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-1 rounded-full flex items-center font-mono">
+        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-1 rounded-full flex items-center font-mono shrink-0 whitespace-nowrap self-start">
           <Flame className="w-3.5 h-3.5 mr-0.5 fill-current text-emerald-500" /> {t.bonusXp}
         </span>
       </div>
