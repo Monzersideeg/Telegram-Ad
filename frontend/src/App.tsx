@@ -135,6 +135,19 @@ export default function App() {
   const [rewardPerAdCoins, setRewardPerAdCoins] = useState<number>(0);
   const [adCooldownSeconds, setAdCooldownSeconds] = useState<number>(30);
 
+  // Watch-ad UI state, lifted here so it survives tab switches (Dashboard unmounts
+  // when you change tabs; keeping this in App means the spinner / status / cooldown
+  // persist, and a late S2S confirmation still updates the balance + counter).
+  const [adWatching, setAdWatching] = useState<boolean>(false);
+  const [adMsg, setAdMsg] = useState<string | null>(null);
+  const [adCooldownLeft, setAdCooldownLeft] = useState<number>(0);
+
+  useEffect(() => {
+    if (adCooldownLeft <= 0) return;
+    const id = setInterval(() => setAdCooldownLeft((s) => (s <= 1 ? 0 : s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [adCooldownLeft]);
+
   // ----- helpers -----
   const addTerminalLog = (lines: string[]) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -394,7 +407,7 @@ export default function App() {
 
   // Poll a watch session until the S2S postback settles it.
   const pollAdStatus = async (sessionId: string): Promise<{ status: string; reward: number } | null> => {
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 45_000;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 1500));
       try {
@@ -429,13 +442,40 @@ export default function App() {
   // session with the backend right after (the row is created while the ad is on screen,
   // long before the S2S postback fires on completion). Coins are still credited ONLY by
   // the verified valued postback — never here.
-  const handleWatchAd = async (): Promise<{
-    ok: boolean;
-    coins?: number;
-    cooldownSec?: number;
-    reason?: string;
-  }> => {
-    if (busyAction) return { ok: false, reason: "busy" };
+  const handleWatchAd = async (): Promise<void> => {
+    if (busyAction || adWatching) return;
+    const en = language === "en";
+    const sym = appConfig.currencySymbol;
+
+    // Local helper: set the user-facing status line + cooldown for a failed/!credited outcome.
+    const finish = (reason: string, detail?: string) => {
+      const d = detail ? ` (${detail})` : "";
+      setAdWatching(false);
+      setBusyAction(false);
+      if (reason === "no_ads") {
+        setAdMsg((en ? "No ads available right now — try again shortly." : "Сейчас нет рекламы — попробуйте чуть позже.") + d);
+        setAdCooldownLeft(15);
+      } else if (reason === "zone") {
+        setAdMsg((en ? "Ad zone misconfigured (verify the zone ID is the MAIN Rewarded-Interstitial zone in Monetag)." : "Зона рекламы настроена неверно.") + d);
+        setAdCooldownLeft(10);
+      } else if (reason === "network") {
+        setAdMsg((en ? "Ad servers unreachable on this network (often blocked by region/ISP). Try another network or VPN." : "Серверы рекламы недоступны в этой сети. Попробуйте другую сеть/VPN.") + d);
+        setAdCooldownLeft(10);
+      } else if (reason === "unrewarded") {
+        setAdMsg((en ? "Ad watched, but this view wasn't monetized by the network — no reward this time (normal in some regions)." : "Реклама просмотрена, но не монетизирована сетью — на этот раз без награды (обычно для некоторых регионов).") + d);
+        setAdCooldownLeft(adCooldownSeconds);
+      } else if (reason === "pending") {
+        setAdMsg(en ? "Reward pending — confirming with the ad network (can take ~1 min). If this persists, make sure the Monetag postback URL is set in your zone." : "Награда подтверждается сетью (может занять ~1 мин). Если не проходит — проверьте postback URL в зоне Monetag.");
+        setAdCooldownLeft(0);
+      } else {
+        setAdMsg((en ? "Could not load an ad. Please try again." : "Не удалось загрузить рекламу.") + d);
+        setAdCooldownLeft(5);
+      }
+    };
+
+    setAdWatching(true);
+    setAdMsg(null);
+
     const zoneId = monetagConfig.interstitialZoneId;
 
     // DEV builds (or a missing/placeholder zone) keep a short simulation for testing.
@@ -451,7 +491,11 @@ export default function App() {
       }));
       addTerminalLog(["[DEV] simulated ad (no live Monetag zone configured)."]);
       playSuccessSound();
-      return { ok: true, coins, cooldownSec: adCooldownSeconds };
+      setAdWatching(false);
+      setBusyAction(false);
+      setAdMsg(en ? `✓ Ad watched! +${coins} ${sym} credited.` : `✓ Реклама просмотрена! +${coins} ${sym}.`);
+      setAdCooldownLeft(adCooldownSeconds);
+      return;
     }
 
     const sessionId =
@@ -474,11 +518,19 @@ export default function App() {
     // 3) Wait for the user to finish (or dismiss) the real ad, then ensure the row exists.
     const outcome = await adPromise;
     await regPromise;
-    setBusyAction(false);
 
     if (!outcome.completed) {
       addTerminalLog([`✗ Real ad not shown: ${outcome.error || "no feed / unavailable"}`]);
-      return { ok: false, reason: outcome.noFeed ? "no_ads" : outcome.error || "not_completed" };
+      const msg = outcome.error || "";
+      const reason = outcome.noFeed
+        ? "no_ads"
+        : /zone misconfigured/i.test(msg)
+        ? "zone"
+        : /network error|timeout exceeded|communicating/i.test(msg)
+        ? "network"
+        : "other";
+      finish(reason, outcome.error);
+      return;
     }
 
     // 4) Poll for the authoritative S2S postback outcome.
@@ -504,21 +556,27 @@ export default function App() {
           fireLevelUpConfetti();
         }, 600);
       }
-      addTerminalLog([`✓ S2S postback verified (valued). Credited +${coins} ${appConfig.currencySymbol}.`]);
+      addTerminalLog([`✓ S2S postback verified (valued). Credited +${coins} ${sym}.`]);
       playSuccessSound();
-      return { ok: true, coins, cooldownSec: adCooldownSeconds };
+      // Balance increase above triggers the coin float in Dashboard; show a clear prompt too.
+      setAdWatching(false);
+      setBusyAction(false);
+      setAdMsg(en ? `✓ Ad watched! +${coins} ${sym} credited.` : `✓ Реклама просмотрена! +${coins} ${sym}.`);
+      setAdCooldownLeft(adCooldownSeconds);
+      return;
     }
 
     if (status?.status === "unrewarded") {
       addTerminalLog(["⚠ Ad viewed but not valued (unpaid traffic). No reward credited."]);
-      return { ok: false, reason: "unrewarded" };
+      finish("unrewarded", outcome.error);
+      return;
     }
 
     addTerminalLog(["⏳ Reward pending confirmation — balance will sync shortly."]);
     api.get<{ balance: number }>("/api/ledger/balance")
       .then((b) => setStats((prev) => ({ ...prev, balance: b.data.balance / rate })))
       .catch(() => undefined);
-    return { ok: false, reason: "pending" };
+    finish("pending");
   };
 
   // ----- daily check-in (backend) -----
@@ -798,7 +856,9 @@ export default function App() {
                       monetagConfig={monetagConfig}
                       appConfig={appConfig}
                       rewardPerAdCoins={rewardPerAdCoins}
-                      adCooldownSeconds={adCooldownSeconds}
+                      adWatching={adWatching}
+                      adMsg={adMsg}
+                      adCooldownLeft={adCooldownLeft}
                       language={language}
                       onSpin={handleSpin}
                       spinCooldownLeft={spinCooldown}

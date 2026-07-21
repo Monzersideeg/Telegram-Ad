@@ -19,9 +19,11 @@ interface DashboardProps {
   watchHistory: AdWatchLog[];
   onNavigateTab: (tab: string) => void;
   telegramUser: { username: string; fullName: string; isPremium: boolean };
-  onWatchAd: () => Promise<{ ok: boolean; coins?: number; cooldownSec?: number; reason?: string }>;
+  onWatchAd: () => Promise<void>;
   rewardPerAdCoins: number;
-  adCooldownSeconds: number;
+  adWatching: boolean;
+  adMsg: string | null;
+  adCooldownLeft: number;
   joinedTelegram: boolean;
   onJoinTelegram: () => void;
   monetagConfig: { isEnabled: boolean };
@@ -38,7 +40,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   telegramUser,
   onWatchAd,
   rewardPerAdCoins,
-  adCooldownSeconds,
+  adWatching,
+  adMsg,
+  adCooldownLeft,
   joinedTelegram,
   onJoinTelegram,
   monetagConfig,
@@ -54,16 +58,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const FAQ_ITEMS = FAQ_ITEMS_TR[language] || FAQ_ITEMS_TR.en;
   const tickerEvents = TICKER_EVENTS_TR[language] || TICKER_EVENTS_TR.en;
 
-  // Cooldown timer state for the massive button
-  const [cooldownTimeLeft, setCooldownTimeLeft] = useState<number>(0);
-  const cooldownTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Floating particle system for ad rewards
+  // Floating particle system for ad rewards. Driven by balance increases (see the
+  // effect below) so the reward animation survives tab switches / remounts — the
+  // watch-in-progress / status / cooldown state itself now lives in App.
   const [floatingCoins, setFloatingCoins] = useState<{ id: number; amount: string }[]>([]);
-
-  // Real Monetag ad in progress + honest status line (replaces the old fake overlay)
-  const [watchingAd, setWatchingAd] = useState(false);
-  const [adStatusMsg, setAdStatusMsg] = useState<string | null>(null);
+  const prevBalRef = useRef<number | null>(null);
 
   // Active Ad overlay play states
   const [isPlayingAd, setIsPlayingAd] = useState(false);
@@ -91,23 +90,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return () => clearInterval(timer);
   }, [tickerEvents.length]);
 
-  // Cooldown countdown effect
+  // Float a coin reward whenever the balance grows (a confirmed ad, check-in, mission,
+  // spin…). The first read just seeds the baseline so the initial /me load doesn't
+  // animate a fake "+balance" coin.
   useEffect(() => {
-    if (cooldownTimeLeft > 0) {
-      cooldownTimerRef.current = setInterval(() => {
-        setCooldownTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(cooldownTimerRef.current!);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    if (prevBalRef.current === null) {
+      prevBalRef.current = stats.balance;
+      return;
     }
-    return () => {
-      if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
-    };
-  }, [cooldownTimeLeft]);
+    if (stats.balance > prevBalRef.current) {
+      const deltaCoins = Math.round(
+        (stats.balance - prevBalRef.current) * (appConfig.usdToCoinRate || 1000)
+      );
+      const id = Date.now();
+      setFloatingCoins((prev) => [...prev, { id, amount: `+${deltaCoins}` }]);
+      setTimeout(() => setFloatingCoins((prev) => prev.filter((x) => x.id !== id)), 1600);
+    }
+    prevBalRef.current = stats.balance;
+  }, [stats.balance, appConfig.usdToCoinRate]);
 
   // Active Ad countdown effect
   useEffect(() => {
@@ -143,36 +143,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   // Click on the massive circular "WATCH AD" trigger → opens a REAL Monetag ad.
+  // In-progress / status / cooldown state is owned by App (controlled via props), so
+  // it survives switching tabs — Dashboard no longer loses it on unmount/remount.
   const handleWatchAdClick = async () => {
-    if (cooldownTimeLeft > 0 || watchingAd || isPlayingAd || isAdCompleted) return;
-    setAdStatusMsg(null);
-    setWatchingAd(true);
-    try {
-      const res = await onWatchAd();
-      if (res.ok) {
-        const coins = res.coins ?? rewardPerAdCoins ?? 0;
-        const particleId = Date.now();
-        setFloatingCoins((prev) => [...prev, { id: particleId, amount: `+${coins}` }]);
-        setTimeout(() => {
-          setFloatingCoins((prev) => prev.filter((item) => item.id !== particleId));
-        }, 1500);
-        setCooldownTimeLeft(res.cooldownSec ?? adCooldownSeconds ?? 30);
-        setAdStatusMsg(null);
-      } else if (res.reason === "no_ads") {
-        setAdStatusMsg(language === "en" ? "No ads available right now — try again shortly." : "Сейчас нет рекламы — попробуйте чуть позже.");
-        setCooldownTimeLeft(15);
-      } else if (res.reason === "unrewarded") {
-        setAdStatusMsg(language === "en" ? "Ad viewed but not rewarded by the network." : "Реклама просмотрена, но не оплачена сетью.");
-        setCooldownTimeLeft(res.cooldownSec ?? 10);
-      } else if (res.reason === "pending") {
-        setAdStatusMsg(language === "en" ? "Reward pending confirmation…" : "Награда подтверждается…");
-      } else if (res.reason !== "busy") {
-        setAdStatusMsg(language === "en" ? "Could not load an ad. Please try again." : "Не удалось загрузить рекламу. Попробуйте ещё раз.");
-        setCooldownTimeLeft(5);
-      }
-    } finally {
-      setWatchingAd(false);
-    }
+    if (adCooldownLeft > 0 || adWatching) return;
+    await onWatchAd();
   };
 
   const handleCaptchaSubmit = (e: React.FormEvent) => {
@@ -313,24 +288,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <button
             id="watchAdBtn"
             onClick={handleWatchAdClick}
-            disabled={cooldownTimeLeft > 0 || watchingAd || isPlayingAd}
-            aria-label={watchingAd ? "Loading ad" : cooldownTimeLeft > 0 ? `Watch ad locked, ${cooldownTimeLeft} seconds remaining` : "Watch ad to earn coins"}
+            disabled={adCooldownLeft > 0 || adWatching}
+            aria-label={adWatching ? "Loading ad" : adCooldownLeft > 0 ? `Watch ad locked, ${adCooldownLeft} seconds remaining` : "Watch ad to earn coins"}
             className={`relative w-36 h-36 rounded-full flex flex-col items-center justify-center gap-1 font-bold transition-all duration-300 select-none shadow-xl border border-emerald-400/20 active:scale-95 cursor-pointer outline-none ${
-              cooldownTimeLeft > 0
+              adCooldownLeft > 0
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
                 : 'btn-primary bg-gradient-to-br from-emerald-400 to-green-500 text-white pulse-ring hover:scale-[1.02]'
             }`}
           >
-            {watchingAd ? (
+            {adWatching ? (
               <>
                 <RefreshCw className="w-8 h-8 text-white mb-1 animate-spin" />
                 <span className="text-[10px] tracking-wider uppercase font-extrabold">{language === 'en' ? 'Loading ad…' : 'Загрузка…'}</span>
                 <span className="text-[9px] opacity-90 font-mono">{language === 'en' ? 'stay here' : 'не закрывайте'}</span>
               </>
-            ) : cooldownTimeLeft > 0 ? (
+            ) : adCooldownLeft > 0 ? (
               <>
                 <Lock className="w-7 h-7 text-slate-300 mb-1" />
-                <span className="text-xs tracking-wider uppercase font-mono">{cooldownTimeLeft}s</span>
+                <span className="text-xs tracking-wider uppercase font-mono">{adCooldownLeft}s</span>
                 <span className="text-[9px] text-slate-400 font-medium">{t.cooldown.toUpperCase()}</span>
               </>
             ) : (
@@ -362,10 +337,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Cooldown labels row exactly matching reference sketch */}
         <div className="mt-4 flex items-center gap-4 text-xs text-slate-500 font-semibold">
           <div className="flex items-center gap-1.5">
-            <RefreshCw className={`w-3.5 h-3.5 ${cooldownTimeLeft > 0 ? 'animate-spin text-amber-500' : 'text-emerald-500'}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${adCooldownLeft > 0 ? 'animate-spin text-amber-500' : 'text-emerald-500'}`} />
             <span>{t.cooldown}:</span>
-            <span id="cooldown" className={`font-bold ${cooldownTimeLeft > 0 ? 'text-amber-500 font-mono' : 'text-emerald-500'}`}>
-              {cooldownTimeLeft > 0 ? `${cooldownTimeLeft}s` : t.ready}
+            <span id="cooldown" className={`font-bold ${adCooldownLeft > 0 ? 'text-amber-500 font-mono' : 'text-emerald-500'}`}>
+              {adCooldownLeft > 0 ? `${adCooldownLeft}s` : t.ready}
             </span>
           </div>
           <div className="w-px h-3 bg-slate-300"></div>
@@ -373,8 +348,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {t.adsWatchedToday}: <span className="font-bold text-slate-800">{stats.adsWatchedCount}/50</span>
           </div>
         </div>
-        {adStatusMsg && (
-          <p className="mt-2 text-[11px] text-center text-amber-600 font-semibold px-3 leading-snug">{adStatusMsg}</p>
+        {adMsg && (
+          <p className="mt-2 text-[11px] text-center text-amber-600 font-semibold px-3 leading-snug">{adMsg}</p>
         )}
       </div>
 
