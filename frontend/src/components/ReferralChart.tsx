@@ -32,31 +32,14 @@ export const ReferralChart: React.FC<ReferralChartProps> = ({ friends }) => {
       // Format readable label e.g., "Jul 16"
       const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       
-      // Filter real friends who joined on this day
+      // Real signups only — friends who actually joined on this day (no synthetic data).
       const realCount = friends.filter(f => f.joinDate === dateStr).length;
-      
-      // Add a stable, beautiful pseudo-random baseline for 30-day signup graph representation
-      // Let's use a formula based on the day value to keep it completely stable
-      const dayVal = d.getDate();
-      let baseline = 0;
-      if (dayVal % 7 === 0) {
-        baseline = 2;
-      } else if (dayVal % 3 === 0) {
-        baseline = 1;
-      } else if (dayVal % 5 === 0) {
-        baseline = 0;
-      } else if (dayVal % 2 === 0) {
-        baseline = 1;
-      }
-      
-      // Today shouldn't have too much baseline so the user's actions stand out
       const isToday = i === 0;
-      const totalCount = realCount + (isToday ? realCount : baseline);
 
       data.push({
         date: dateStr,
         label,
-        signups: totalCount,
+        signups: realCount,
         realSignups: realCount,
         isToday,
       });

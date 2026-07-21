@@ -94,26 +94,31 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
 
   // Compute dynamic user status rank details based on active tab
   const userRankDetails = React.useMemo(() => {
+    const me =
+      rankedList.find((u) => u.isCurrentUser) ||
+      rankedList.find((u) => u.username === telegramUser.username);
+    const rank = me ? me.computedRank : currentUserStats.rank || 0;
+    const rankStr = rank ? `#${rank}` : '—';
     if (activeTab === 'earners') {
       return {
-        rank: currentUserStats.rank ? `#${currentUserStats.rank}` : '—',
+        rank: rankStr,
         score: `${Math.round(currentUserStats.balance * 1000).toLocaleString()} ACN`,
-        label: 'Global earners rank'
+        label: 'Global earners rank',
       };
     } else if (activeTab === 'referrers') {
       return {
-        rank: '#5',
+        rank: rankStr,
         score: `${currentUserStats.referralCount} referrals`,
-        label: 'Top 12.0% Globally'
+        label: 'Ranked by referrals',
       };
     } else {
       return {
-        rank: '#4',
+        rank: rankStr,
         score: `${currentUserStats.activeReferralCount} active refs`,
-        label: 'Conversion rate: 100%'
+        label: 'Ranked by active referrals',
       };
     }
-  }, [activeTab, currentUserStats]);
+  }, [activeTab, currentUserStats, rankedList, telegramUser.username]);
 
   return (
     <div id="leaderboard-view" className="scroll-area flex-1 overflow-y-auto pb-28 px-5 pt-3 space-y-4">
@@ -337,14 +342,14 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
         </div>
 
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 shadow-sm">
-          {(searchQuery !== '' ? filteredList : listUsers).length === 0 ? (
+          {(searchQuery !== '' ? filteredList : rankedList).length === 0 ? (
             <div className="p-8 text-center text-slate-400">
               <User className="w-10 h-10 text-slate-300 mx-auto opacity-40 mb-2" />
               <div className="text-xs font-semibold">No creators found</div>
               <p className="text-[10px] text-slate-400">Try refining search parameters.</p>
             </div>
           ) : (
-            (searchQuery !== '' ? filteredList : listUsers).map((user) => {
+            (searchQuery !== '' ? filteredList : rankedList).map((user) => {
               return (
                 <div
                   key={user.username}

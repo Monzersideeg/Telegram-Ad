@@ -34,6 +34,7 @@ interface DashboardProps {
   language: 'en' | 'ru';
   onSpin: () => Promise<{ ok: boolean; rewardCoins?: number; cooldownLeft?: number }>;
   spinCooldownLeft: number;
+  feed: string[];
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -56,6 +57,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   language,
   onSpin,
   spinCooldownLeft,
+  feed,
 }) => {
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const [tickerIndex, setTickerIndex] = useState(0);
@@ -63,6 +65,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const t = translations[language] || translations.en;
   const FAQ_ITEMS = FAQ_ITEMS_TR[language] || FAQ_ITEMS_TR.en;
   const tickerEvents = TICKER_EVENTS_TR[language] || TICKER_EVENTS_TR.en;
+  // Real activity feed from the server. Falls back to honest prompts when empty —
+  // never fabricated user events. (tickerEvents is kept only as a last resort.)
+  const feedItems =
+    feed && feed.length
+      ? feed
+      : language === 'en'
+      ? ['Be the first to earn ACN today 🚀', 'Watch a rewarded ad to keep your streak alive 🔥']
+      : ['Заработайте первые ACN сегодня 🚀', 'Смотрите рекламу, чтобы поддерживать серию 🔥'];
+  void tickerEvents;
 
   // Floating particle system for ad rewards. Driven by balance increases (see the
   // effect below) so the reward animation survives tab switches / remounts — the
@@ -91,10 +102,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setTickerIndex((prev) => (prev + 1) % tickerEvents.length);
+      setTickerIndex((prev) => (prev + 1) % feedItems.length);
     }, 4500);
     return () => clearInterval(timer);
-  }, [tickerEvents.length]);
+  }, [feedItems.length]);
 
   // Float a coin reward whenever the balance grows (a confirmed ad, check-in, mission,
   // spin…). The first read just seeds the baseline so the initial /me load doesn't
@@ -250,7 +261,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               key={tickerIndex}
             >
               <span className="animate-in slide-in-from-bottom-2 duration-300">
-                {tickerEvents[tickerIndex]}
+                {feedItems[tickerIndex % feedItems.length]}
               </span>
             </div>
           </div>

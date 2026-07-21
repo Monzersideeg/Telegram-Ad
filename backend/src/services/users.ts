@@ -94,15 +94,43 @@ export async function getReferralStats(userId: number) {
     `,
     [userId]
   );
-  const list = await query<{ username: string | null; first_name: string | null; created_at: string }>(
-    `SELECT username, first_name, created_at FROM users WHERE referred_by = $1
-     ORDER BY created_at DESC LIMIT 50`,
+
+  // Real, per-referee numbers: each invited user, what they've earned, and the
+  // commission this referrer actually received from them (via referral_bonus meta).
+  const friends = await query<{
+    id: number;
+    username: string | null;
+    first_name: string | null;
+    created_at: string;
+    total_earned: string;
+    commission: string;
+  }>(
+    `
+    SELECT u.id, u.username, u.first_name, u.created_at,
+           COALESCE((SELECT SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END)
+                       FROM transactions WHERE user_id = u.id), 0)::text AS total_earned,
+           COALESCE((SELECT SUM(amount) FROM transactions
+                       WHERE user_id = $1 AND type = 'referral_bonus'
+                         AND meta->>'from_user' = u.id::text), 0)::text AS commission
+      FROM users u
+     WHERE u.referred_by = $1
+     ORDER BY u.created_at DESC
+     LIMIT 100
+    `,
     [userId]
   );
+
   return {
     count: Number(res.rows[0]?.count ?? 0),
     earned: Number(res.rows[0]?.earned ?? 0),
-    recent: list.rows,
+    friends: friends.rows.map((r) => ({
+      id: Number(r.id),
+      username: r.username,
+      firstName: r.first_name,
+      createdAt: r.created_at,
+      totalEarned: Number(r.total_earned),
+      commission: Number(r.commission),
+    })),
   };
 }
 

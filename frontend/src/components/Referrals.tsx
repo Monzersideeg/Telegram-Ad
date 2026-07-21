@@ -15,19 +15,17 @@ import { playClickSound } from '../utils/soundEffects';
 
 interface ReferralsProps {
   friends: ReferredFriend[];
-  onInviteFriendSimulated: () => void;
   referralCode: string;
   referralEarnings: number;
 }
 
 export const Referrals: React.FC<ReferralsProps> = ({
   friends,
-  onInviteFriendSimulated,
   referralCode,
   referralEarnings,
 }) => {
   const [copied, setCopied] = useState(false);
-  const inviteLink = `https://t.me/AdCoinEarnBot?start=ref_${referralCode}`;
+  const inviteLink = referralCode;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(inviteLink);
@@ -54,12 +52,12 @@ export const Referrals: React.FC<ReferralsProps> = ({
             </div>
             <div>
               <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Invite friends & earn</h2>
-              <p className="text-[10px] text-slate-400">Receive 15% lifetime commission from all their ad views</p>
+              <p className="text-[10px] text-slate-400">Receive 10% lifetime commission from all their ad views</p>
             </div>
           </div>
 
           <p className="text-xs text-slate-600 leading-relaxed font-light">
-            Build your passive income pool. When someone joins through your invitation link, <strong className="text-emerald-600 font-bold">15%</strong> of all their ad watched rewards is instantly credited to your wallet in real-time, forever.
+            Build your passive income pool. When someone joins through your invitation link, <strong className="text-emerald-600 font-bold">10%</strong> of all their ad watched rewards is instantly credited to your wallet in real-time, forever.
           </p>
 
           {/* Copy Invite Link Input Widget */}
@@ -100,7 +98,7 @@ export const Referrals: React.FC<ReferralsProps> = ({
             <div className="grid grid-cols-2 gap-2.5">
               <a
                 id="share-telegram-btn"
-                href={`https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent("🚀 Join AdCoin! Watch simple ads, spin the fortune wheel daily, and earn real TON rewards instantly! 💎🎁")}`}
+                href={`https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent("🚀 Join AcEarn! Watch rewarded ads, spin the daily wheel, and earn real ACN rewards instantly! 💎🎁")}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => playClickSound()}
@@ -149,7 +147,7 @@ export const Referrals: React.FC<ReferralsProps> = ({
             <div className="w-6 h-6 bg-emerald-500 text-white rounded-full flex items-center justify-center text-[11px] font-extrabold mx-auto mb-1.5">
               3
             </div>
-            <h4 className="text-[9px] font-bold text-emerald-600">Earn 15%</h4>
+            <h4 className="text-[9px] font-bold text-emerald-600">Earn 10%</h4>
             <p className="text-[8px] text-slate-500 mt-0.5 leading-tight">Get coins credited into your ledger balance</p>
           </div>
         </div>
@@ -209,31 +207,11 @@ export const Referrals: React.FC<ReferralsProps> = ({
       {/* 30-Day New Referral Signups Trend Chart */}
       <ReferralChart friends={friends} />
 
-      {/* Real-time Program Simulator Trigger */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-4 flex items-center justify-between shadow-sm">
-        <div className="space-y-0.5">
-          <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-            <UserPlus className="w-4.5 h-4.5 text-emerald-500" />
-            <span>Simulate Referrals</span>
-          </div>
-          <p className="text-[9px] text-slate-400 font-light pr-4 max-w-[210px] leading-tight">
-            Instantly mock invite a random user. They will instantly watch ads and pay commission directly to your balance!
-          </p>
-        </div>
-        <button
-          onClick={onInviteFriendSimulated}
-          aria-label="Simulate a mock invite (demo only)"
-          className="px-3.5 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-extrabold rounded-xl text-[11px] transition shadow cursor-pointer uppercase tracking-wider font-sans shrink-0"
-        >
-          Mock Invite
-        </button>
-      </div>
-
       {/* Referred Friends Feed */}
       <div className="space-y-2.5">
         <div className="flex items-center justify-between px-1 text-[10px] text-slate-500 font-bold uppercase tracking-wider font-mono">
           <span>Referred Friends ({friends.length})</span>
-          <span>15% Share</span>
+          <span>10% Share</span>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 shadow-sm">
@@ -242,7 +220,7 @@ export const Referrals: React.FC<ReferralsProps> = ({
               <Users className="w-9 h-9 text-slate-300 mx-auto" />
               <div className="text-xs font-semibold">No referrals yet</div>
               <p className="text-[10px] max-w-xs mx-auto text-slate-400 leading-relaxed font-light">
-                Invite friends or click the "Mock Invite" button above to simulate commission inflows.
+                Share your invite link above — when friends join and watch ads, you earn 10% of their rewards, for life.
               </p>
             </div>
           ) : (

@@ -112,23 +112,23 @@ export const LuckySpin: React.FC<LuckySpinProps> = ({ onSpin, initialCooldownLef
       {/* Header */}
       <div className="flex items-center justify-between gap-2.5">
         <div className="flex items-center space-x-2 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0 animate-pulse">
+          <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
             <Gift className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <h4 className="text-[11px] sm:text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
-              <span>Daily Lucky Spin</span>
-              <span className="text-[7px] sm:text-[8px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-mono uppercase font-black shrink-0">24H Reward</span>
-              {cooldownLeft > 0 && (
-                <span className="flex items-center space-x-1 text-amber-700 font-mono text-[9px] bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded shrink-0">
-                  <Clock className="w-3 h-3 text-amber-500 animate-spin" />
-                  <span className="font-bold">{formatCooldown(cooldownLeft)}</span>
-                </span>
-              )}
+            <h4 className="text-[11px] sm:text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 min-w-0">
+              <span className="truncate">Daily Lucky Spin</span>
+              <span className="text-[7px] sm:text-[8px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-mono uppercase font-black shrink-0">24H</span>
             </h4>
-            <p className="text-[9px] text-slate-400 truncate sm:whitespace-normal">Spin the wheel once a day to win free bonus coins!</p>
+            <p className="text-[9px] text-slate-400 truncate">Spin the wheel once a day to win free bonus coins!</p>
           </div>
         </div>
+        {cooldownLeft > 0 && (
+          <span className="flex items-center space-x-1 text-amber-700 font-mono text-[9px] bg-amber-50 border border-amber-100 px-1.5 py-1 rounded shrink-0 whitespace-nowrap">
+            <Clock className="w-3 h-3 text-amber-500" />
+            <span className="font-bold">{formatCooldown(cooldownLeft)}</span>
+          </span>
+        )}
       </div>
 
       {/* Wheel */}

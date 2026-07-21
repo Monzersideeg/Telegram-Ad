@@ -110,6 +110,7 @@ export default function App() {
 
   const [levelUpData, setLevelUpData] = useState<{ newLevel: number; oldLevel: number } | null>(null);
   const [postbackLogs, setPostbackLogs] = useState<string[]>([]);
+  const [feed, setFeed] = useState<string[]>([]);
 
   const [monetagConfig, setMonetagConfig] = useState<MonetagConfig>({
     smartlinkUrl: "",
@@ -120,7 +121,7 @@ export default function App() {
   });
 
   const [telegramUser, setTelegramUser] = useState<{ username: string; fullName: string; isPremium: boolean; photoUrl: string | null }>({ username: "anonymous", fullName: "Guest User", isPremium: false, photoUrl: null });
-  const [friends, setFriends] = useState<ReferredFriend[]>(MOCK_REFERRED_FRIENDS);
+  const [friends, setFriends] = useState<ReferredFriend[]>([]);
   const [watchHistory, setWatchHistory] = useState<AdWatchLog[]>([]);
   const [payoutHistory, setPayoutHistory] = useState<PayoutRequest[]>([]);
 
@@ -251,21 +252,42 @@ export default function App() {
 
   const loadReferrals = async () => {
     try {
+      const rate = appConfig.usdToCoinRate || 1000;
       const { data } = await api.get<{
         count: number;
         earned: number;
-        recent: { username: string | null; first_name: string | null; created_at: string }[];
+        friends: {
+          id: number;
+          username: string | null;
+          firstName: string | null;
+          createdAt: string;
+          totalEarned: number;
+          commission: number;
+        }[];
       }>("/api/referrals");
-      setStats((prev) => ({ ...prev, referralCount: data.count }));
-      const real: ReferredFriend[] = (data.recent || []).map((r, i) => ({
-        id: `f_${i}`,
-        username: r.username || r.first_name || "friend",
-        fullName: r.first_name || r.username || "Friend",
-        joinDate: r.created_at.split("T")[0],
-        totalEarned: 0,
-        commissionContributed: 0,
+      setStats((prev) => ({
+        ...prev,
+        referralCount: data.count,
+        referralEarnings: (data.earned || 0) / rate,
       }));
-      setFriends(real.length ? real : MOCK_REFERRED_FRIENDS);
+      const real: ReferredFriend[] = (data.friends || []).map((f) => ({
+        id: String(f.id),
+        username: f.username || f.firstName || "friend",
+        fullName: f.firstName || f.username || "Friend",
+        joinDate: (f.createdAt || "").split("T")[0],
+        totalEarned: (f.totalEarned || 0) / rate,
+        commissionContributed: (f.commission || 0) / rate,
+      }));
+      setFriends(real); // real data only — honest empty state when none
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const loadFeed = async () => {
+    try {
+      const { data } = await api.get<{ events: { text: string }[] }>("/api/feed");
+      setFeed((data.events || []).map((e) => e.text));
     } catch {
       /* ignore */
     }
@@ -389,6 +411,7 @@ export default function App() {
       loadLeaderboard(rate, data.user.telegramId);
       loadCheckin();
       loadSpin();
+      loadFeed();
 
       if (!isDevAdMode(data.config.monetagZoneId)) preloadAd(data.config.monetagZoneId);
 
@@ -407,6 +430,11 @@ export default function App() {
   useEffect(() => {
     initTelegram();
     loadApp();
+    loadFeed();
+    const feedTimer = setInterval(() => {
+      loadFeed();
+    }, 20_000);
+    return () => clearInterval(feedTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -874,6 +902,7 @@ export default function App() {
                       maxAdsPerDay={maxAdsPerDay}
                       streakWeek={checkin.week}
                       streakDays={checkin.streakDays}
+                      feed={feed}
                       language={language}
                       onSpin={handleSpin}
                       spinCooldownLeft={spinCooldown}
@@ -897,7 +926,6 @@ export default function App() {
                 {activeTab === "friends" && (
                   <Referrals
                     friends={friends}
-                    onInviteFriendSimulated={handleInviteFriendSimulated}
                     referralCode={referralLink}
                     referralEarnings={stats.referralEarnings}
                   />
