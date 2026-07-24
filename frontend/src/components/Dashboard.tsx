@@ -417,7 +417,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </span>
         </div>
         <div className="flex items-center justify-between gap-1.5">
-          {(streakWeek && streakWeek.length ? streakWeek : Array.from({ length: 7 }, () => ({ dow: '·', done: false }))).map((d, idx) => (
+          {(streakWeek && streakWeek.length ? streakWeek : Array.from({ length: 7 }, (_, i) => {
+            const d = new Date();
+            d.setUTCDate(d.getUTCDate() - (6 - i));
+            return { dow: ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getUTCDay()], done: false };
+          })).map((d, idx) => (
             <div
               key={idx}
               title={d.done ? (language === 'en' ? 'Checked in' : 'Отметка') : (language === 'en' ? 'Missed' : 'Пропущено')}

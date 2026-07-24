@@ -8,7 +8,7 @@ import {
   Users, Copy, Check, UserPlus, Gift, TrendingUp, Calendar, 
   Coins, ArrowUpRight, Share2, Sparkles, Award 
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+// (framer-motion removed — replaced the copy toast with a plain CSS transition for performance)
 import { ReferredFriend } from '../types';
 import { ReferralChart } from './ReferralChart';
 import { playClickSound } from '../utils/soundEffects';
@@ -256,22 +256,15 @@ export const Referrals: React.FC<ReferralsProps> = ({
         </div>
       </div>
 
-      {/* Real-time Toast Feedback Notification */}
-      <AnimatePresence>
-        {copied && (
-          <motion.div
-            initial={{ opacity: 0, y: 30, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur-md text-white px-5 py-3 rounded-full shadow-xl shadow-emerald-500/20 flex items-center space-x-2.5 border border-slate-800 text-xs font-bold tracking-wide pointer-events-none whitespace-nowrap"
-          >
-            <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white shrink-0 shadow shadow-emerald-500/30">
-              <Check className="w-3.5 h-3.5 stroke-[3.5]" />
-            </div>
-            <span>Referral link copied successfully!</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Copy confirmation toast (plain CSS — no animation library) */}
+      {copied && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur-md text-white px-5 py-3 rounded-full shadow-xl shadow-emerald-500/20 flex items-center space-x-2.5 border border-slate-800 text-xs font-bold tracking-wide pointer-events-none whitespace-nowrap transition-all duration-200">
+          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white shrink-0 shadow shadow-emerald-500/30">
+            <Check className="w-3.5 h-3.5 stroke-[3.5]" />
+          </div>
+          <span>Referral link copied successfully!</span>
+        </div>
+      )}
     </div>
   );
 };

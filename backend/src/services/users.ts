@@ -38,9 +38,12 @@ export async function upsertUser(
     INSERT INTO users (telegram_id, username, first_name, referred_by)
     VALUES ($1, $2, $3, $4)
     ON CONFLICT (telegram_id) DO UPDATE SET
-      username   = EXCLUDED.username,
-      first_name = EXCLUDED.first_name,
-      updated_at = now()
+      username    = EXCLUDED.username,
+      first_name  = EXCLUDED.first_name,
+      -- Backfill referral attribution if the user first opened the app without a ref
+      -- link and only later arrived through one (referral is never overwritten once set).
+      referred_by = COALESCE(users.referred_by, EXCLUDED.referred_by),
+      updated_at  = now()
     RETURNING ${USER_COLS}
     `,
     [tgUser.id, tgUser.username ?? null, tgUser.first_name ?? null, referredBy]
@@ -83,15 +86,17 @@ export async function getUserByDbId(id: number): Promise<DbUser | null> {
 }
 
 export async function getReferralStats(userId: number) {
-  const res = await query<{ count: string; earned: string }>(
-    `
-    SELECT
-      COUNT(*)::text AS count,
-      COALESCE(SUM(t.amount), 0)::text AS earned
-    FROM users u
-    JOIN transactions t ON t.user_id = $1 AND t.type = 'referral_bonus'
-    WHERE u.referred_by = $1
-    `,
+  // Number of invited users = users whose referred_by points here (independent of
+  // whether they've generated a paid ad yet). Total commission earned = the sum of
+  // this user's referral_bonus credits. (The old query cross-joined these two sets
+  // and returned 0 / wrong numbers until a valued ad paid out.)
+  const countRes = await query<{ n: string }>(
+    "SELECT COUNT(*)::text AS n FROM users WHERE referred_by = $1",
+    [userId]
+  );
+  const earnedRes = await query<{ n: string }>(
+    `SELECT COALESCE(SUM(amount), 0)::text AS n
+       FROM transactions WHERE user_id = $1 AND type = 'referral_bonus'`,
     [userId]
   );
 
@@ -121,8 +126,8 @@ export async function getReferralStats(userId: number) {
   );
 
   return {
-    count: Number(res.rows[0]?.count ?? 0),
-    earned: Number(res.rows[0]?.earned ?? 0),
+    count: Number(countRes.rows[0]?.n ?? 0),
+    earned: Number(earnedRes.rows[0]?.n ?? 0),
     friends: friends.rows.map((r) => ({
       id: Number(r.id),
       username: r.username,

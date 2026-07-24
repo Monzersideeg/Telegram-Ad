@@ -7,7 +7,7 @@
  * The backend is unchanged; coin <-> USD conversion uses config.coinsPerUsd.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense, useMemo, type ReactNode } from "react";
 import {
   Play, Users, Trophy, Wallet, ShieldCheck, CheckSquare,
   ShieldCheck as ShieldIcon, Zap, Check,
@@ -15,15 +15,19 @@ import {
 
 import { Header } from "./components/Header";
 import { Dashboard } from "./components/Dashboard";
-import { Tasks } from "./components/Tasks";
-import { Referrals } from "./components/Referrals";
-import { Leaderboard } from "./components/Leaderboard";
-import { Payout } from "./components/Payout";
 import { CheckInCard } from "./components/CheckInCard";
-import { MyAdmin } from "./components/admin/MyAdmin";
-import { LandingPage } from "./components/public/LandingPage";
-import { PrivacyPolicy } from "./components/public/PrivacyPolicy";
-import { TermsOfService } from "./components/public/TermsOfService";
+import ErrorBoundary from "./components/ErrorBoundary";
+
+// Heavy / non-initial screens are lazy-loaded (code-split) so first paint and tab
+// navigation stay fast on low-end devices. Named exports are adapted to a default.
+const Tasks = lazy(() => import("./components/Tasks").then((m) => ({ default: m.Tasks })));
+const Referrals = lazy(() => import("./components/Referrals").then((m) => ({ default: m.Referrals })));
+const Leaderboard = lazy(() => import("./components/Leaderboard").then((m) => ({ default: m.Leaderboard })));
+const Payout = lazy(() => import("./components/Payout").then((m) => ({ default: m.Payout })));
+const MyAdmin = lazy(() => import("./components/admin/MyAdmin").then((m) => ({ default: m.MyAdmin })));
+const LandingPage = lazy(() => import("./components/public/LandingPage").then((m) => ({ default: m.LandingPage })));
+const PrivacyPolicy = lazy(() => import("./components/public/PrivacyPolicy").then((m) => ({ default: m.PrivacyPolicy })));
+const TermsOfService = lazy(() => import("./components/public/TermsOfService").then((m) => ({ default: m.TermsOfService })));
 
 import {
   UserStats, MonetagConfig, PayoutRequest, ReferredFriend, AdWatchLog, AppConfig, AdCampaign, LeaderboardUser,
@@ -38,6 +42,27 @@ import { api, apiErrorMessage } from "./lib/api";
 import { isDevAdMode, preloadAd, showRewardedAd, simulateAdDev } from "./lib/monetag";
 
 const TELEGRAM_APP_URL = "https://t.me/AcEarn_bot/app";
+
+/** Spinner shown while a lazy tab chunk downloads. */
+const TabLoading = () => (
+  <div className="flex items-center justify-center py-24">
+    <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+
+/** Per-tab Suspense + ErrorBoundary: a slow chunk shows a spinner, a crash in one tab
+ *  shows a small inline fallback instead of blanking the whole Mini App. */
+const TabView = ({ children }: { children: ReactNode }) => (
+  <ErrorBoundary
+    fallback={
+      <div className="p-8 text-center text-xs text-slate-500">
+        This section failed to load. Please reopen the app.
+      </div>
+    }
+  >
+    <Suspense fallback={<TabLoading />}>{children}</Suspense>
+  </ErrorBoundary>
+);
 
 /** Shape of GET /api/auth/me from the existing backend. */
 interface MeResponse {
@@ -760,10 +785,10 @@ export default function App() {
   // ROUTER OUTLET
   // =========================================================
   if (currentPath === "privacy") {
-    return <PrivacyPolicy appConfig={appConfig} onNavigate={navigateTo} language={language} />;
+    return <TabView><PrivacyPolicy appConfig={appConfig} onNavigate={navigateTo} language={language} /></TabView>;
   }
   if (currentPath === "terms") {
-    return <TermsOfService appConfig={appConfig} onNavigate={navigateTo} language={language} />;
+    return <TabView><TermsOfService appConfig={appConfig} onNavigate={navigateTo} language={language} /></TabView>;
   }
   if (currentPath === "admin") {
     if (!authed || !isAdmin) {
@@ -782,7 +807,7 @@ export default function App() {
         </div>
       );
     }
-    return <MyAdmin onLogout={handleLogout} />;
+    return <TabView><MyAdmin onLogout={handleLogout} /></TabView>;
   }
 
   // Loading splash
@@ -798,7 +823,7 @@ export default function App() {
   // Not authed (outside Telegram) → Landing page
   if (!authed || currentPath === "landing") {
     if (!authed) {
-      return <LandingPage appConfig={appConfig} onNavigate={navigateTo} language={language} />;
+      return <TabView><LandingPage appConfig={appConfig} onNavigate={navigateTo} language={language} /></TabView>;
     }
   }
 
@@ -910,47 +935,55 @@ export default function App() {
                   </>
                 )}
                 {activeTab === "tasks" && (
-                  <Tasks
-                    stats={stats}
-                    joinedTelegram={joinedTelegram}
-                    onJoinTelegram={handleJoinTelegram}
-                    claimedWatch10={claimedWatch10}
-                    onClaimWatch10={handleClaimWatch10}
-                    claimedInvite3={claimedInvite3}
-                    onClaimInvite3={handleClaimInvite3}
-                    onNavigateTab={handleNavigateTab}
-                    appConfig={appConfig}
-                    language={language}
-                  />
+                  <TabView>
+                    <Tasks
+                      stats={stats}
+                      joinedTelegram={joinedTelegram}
+                      onJoinTelegram={handleJoinTelegram}
+                      claimedWatch10={claimedWatch10}
+                      onClaimWatch10={handleClaimWatch10}
+                      claimedInvite3={claimedInvite3}
+                      onClaimInvite3={handleClaimInvite3}
+                      onNavigateTab={handleNavigateTab}
+                      appConfig={appConfig}
+                      language={language}
+                    />
+                  </TabView>
                 )}
                 {activeTab === "friends" && (
-                  <Referrals
-                    friends={friends}
-                    referralCode={referralLink}
-                    referralEarnings={stats.referralEarnings}
-                  />
+                  <TabView>
+                    <Referrals
+                      friends={friends}
+                      referralCode={referralLink}
+                      referralEarnings={stats.referralEarnings}
+                    />
+                  </TabView>
                 )}
                 {activeTab === "arena" && (
-                  <Leaderboard
-                    users={leaders}
-                    currentUserStats={{
-                      balance: stats.balance,
-                      adsCount: stats.adsWatchedCount,
-                      referralCount: stats.referralCount,
-                      activeReferralCount: myRank.activeReferralCount,
-                      rank: myRank.rank,
-                    }}
-                    telegramUser={telegramUser}
-                  />
+                  <TabView>
+                    <Leaderboard
+                      users={leaders}
+                      currentUserStats={{
+                        balance: stats.balance,
+                        adsCount: stats.adsWatchedCount,
+                        referralCount: stats.referralCount,
+                        activeReferralCount: myRank.activeReferralCount,
+                        rank: myRank.rank,
+                      }}
+                      telegramUser={telegramUser}
+                    />
+                  </TabView>
                 )}
                 {activeTab === "wallet" && (
-                  <Payout
-                    balance={stats.balance}
-                    payoutHistory={payoutHistory}
-                    onSubmitPayout={handleWithdrawalRequest}
-                    onSimulateApprove={handlePayoutApproval}
-                    appConfig={appConfig}
-                  />
+                  <TabView>
+                    <Payout
+                      balance={stats.balance}
+                      payoutHistory={payoutHistory}
+                      onSubmitPayout={handleWithdrawalRequest}
+                      onSimulateApprove={handlePayoutApproval}
+                      appConfig={appConfig}
+                    />
+                  </TabView>
                 )}
               </div>
 
