@@ -13,19 +13,24 @@ import { ReferredFriend } from '../types';
 import { ReferralChart } from './ReferralChart';
 import { playClickSound } from '../utils/soundEffects';
 
+declare const __BUILD_ID__: string;
+
 interface ReferralsProps {
   friends: ReferredFriend[];
   referralCode: string;
   referralEarnings: number;
+  myReferrer: string | null;
 }
 
 export const Referrals: React.FC<ReferralsProps> = ({
   friends,
   referralCode,
   referralEarnings,
+  myReferrer,
 }) => {
   const [copied, setCopied] = useState(false);
   const inviteLink = referralCode;
+  const buildId = typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev";
 
   const handleCopy = () => {
     navigator.clipboard.writeText(inviteLink);
@@ -40,6 +45,17 @@ export const Referrals: React.FC<ReferralsProps> = ({
 
   return (
     <div id="referrals-view" className="scroll-area flex-1 overflow-y-auto pb-28 px-5 pt-3 space-y-4">
+
+      {/* Diagnostics: confirms the loaded build + whether this device received a
+          referral code. Shown to the user so a screenshot gives ground truth. */}
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-mono text-slate-500 flex items-center justify-between gap-2">
+        <span className="truncate">
+          {myReferrer
+            ? `✓ Joined via @${myReferrer}`
+            : "No referral code detected on this device"}
+        </span>
+        <span className="shrink-0 text-slate-400">build {buildId}</span>
+      </div>
       
       {/* Referral Hero Panel (Vibrant light emerald design) */}
       <div className="bg-white border border-slate-200 rounded-3xl p-5 relative overflow-hidden shadow-sm">

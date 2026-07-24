@@ -70,6 +70,7 @@ interface MeResponse {
   balance: number; // coins
   streakDays: number;
   referralLink: string;
+  referredByUsername: string | null;
   isAdmin: boolean;
   config: {
     rewardPerAd: number;
@@ -94,6 +95,7 @@ export default function App() {
   const [authed, setAuthed] = useState<boolean>(false);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [referralLink, setReferralLink] = useState<string>(TELEGRAM_APP_URL);
+  const [myReferrer, setMyReferrer] = useState<string | null>(null);
 
   const [knockCount, setKnockCount] = useState<number>(0);
 
@@ -393,6 +395,7 @@ export default function App() {
       setAuthed(true);
       setIsAdmin(!!data.isAdmin);
       setReferralLink(data.referralLink);
+      setMyReferrer(data.referredByUsername ?? null);
       setTelegramUser({
         username: data.user.username || "telegram_user",
         fullName: data.user.firstName || "User",
@@ -956,6 +959,7 @@ export default function App() {
                       friends={friends}
                       referralCode={referralLink}
                       referralEarnings={stats.referralEarnings}
+                      myReferrer={myReferrer}
                     />
                   </TabView>
                 )}
