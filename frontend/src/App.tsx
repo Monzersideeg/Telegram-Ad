@@ -40,6 +40,7 @@ import { txLabel } from "./lib/format";
 import { initTelegram } from "./lib/telegram";
 import { api, apiErrorMessage } from "./lib/api";
 import { isDevAdMode, preloadAd, showRewardedAd, simulateAdDev } from "./lib/monetag";
+import { preloadAdsGram, showAdsGramAd } from "./lib/adsgram";
 
 const TELEGRAM_APP_URL = "https://t.me/AcEarn_bot/app";
 
@@ -80,6 +81,8 @@ interface MeResponse {
     maxAdsPerDay: number;
     referralBonusPct: number;
     monetagZoneId: string;
+    adsgramBlockId: string;
+    adsgramEnabled: boolean;
   };
 }
 
@@ -163,6 +166,8 @@ export default function App() {
   const [rewardPerAdCoins, setRewardPerAdCoins] = useState<number>(0);
   const [adCooldownSeconds, setAdCooldownSeconds] = useState<number>(30);
   const [maxAdsPerDay, setMaxAdsPerDay] = useState<number>(20);
+  const [adsgramEnabled, setAdsgramEnabled] = useState<boolean>(false);
+  const [adsgramBlockId, setAdsgramBlockId] = useState<string>("");
 
   // Watch-ad UI state, lifted here so it survives tab switches (Dashboard unmounts
   // when you change tabs; keeping this in App means the spinner / status / cooldown
@@ -410,6 +415,8 @@ export default function App() {
       setRewardPerAdCoins(data.config.rewardPerAd);
       setAdCooldownSeconds(data.config.adCooldownSeconds);
       setMaxAdsPerDay(data.config.maxAdsPerDay);
+      setAdsgramEnabled(!!data.config.adsgramEnabled);
+      setAdsgramBlockId(data.config.adsgramBlockId || "");
       setMonetagConfig((prev) => ({
         ...prev,
         interstitialZoneId: data.config.monetagZoneId,
@@ -442,6 +449,9 @@ export default function App() {
       loadFeed();
 
       if (!isDevAdMode(data.config.monetagZoneId)) preloadAd(data.config.monetagZoneId);
+      if (data.config.adsgramEnabled && data.config.adsgramBlockId) {
+        preloadAdsGram(data.config.adsgramBlockId);
+      }
 
       addTerminalLog([
         "[SYSTEM] Telegram initData verified (HMAC-SHA256).",
@@ -510,7 +520,7 @@ export default function App() {
   // session with the backend right after (the row is created while the ad is on screen,
   // long before the S2S postback fires on completion). Coins are still credited ONLY by
   // the verified valued postback — never here.
-  const handleWatchAd = async (): Promise<void> => {
+  const handleWatchAd = async (network: "monetag" | "adsgram"): Promise<void> => {
     if (busyAction || adWatching) return;
     const en = language === "en";
     const sym = appConfig.currencySymbol;
@@ -529,6 +539,9 @@ export default function App() {
       } else if (reason === "network") {
         setAdMsg((en ? "Ad servers unreachable on this network (often blocked by region/ISP). Try another network or VPN." : "Серверы рекламы недоступны в этой сети. Попробуйте другую сеть/VPN.") + d);
         setAdCooldownLeft(10);
+      } else if (reason === "skipped") {
+        setAdMsg((en ? "Ad skipped or unavailable — no reward this time." : "Реклама пропущена или недоступна — на этот раз без награды.") + d);
+        setAdCooldownLeft(8);
       } else if (reason === "unrewarded") {
         setAdMsg((en ? "Ad watched, but this view wasn't monetized by the network — no reward this time (normal in some regions)." : "Реклама просмотрена, но не монетизирована сетью — на этот раз без награды (обычно для некоторых регионов).") + d);
         setAdCooldownLeft(adCooldownSeconds);
@@ -547,7 +560,7 @@ export default function App() {
     const zoneId = monetagConfig.interstitialZoneId;
 
     // DEV builds (or a missing/placeholder zone) keep a short simulation for testing.
-    if (isDevAdMode(zoneId)) {
+    if (network === "monetag" && isDevAdMode(zoneId)) {
       await simulateAdDev();
       const coins = rewardPerAdCoins || 10;
       const rate = appConfig.usdToCoinRate || 1000;
@@ -571,14 +584,17 @@ export default function App() {
         ? crypto.randomUUID()
         : `s_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    // 1) SYNCHRONOUS open of the real Monetag rewarded interstitial (gesture preserved).
-    const adPromise = showRewardedAd({ zoneId, ymid: sessionId, requestVar: "watch_button" });
+    // 1) SYNCHRONOUSLY open the chosen network's ad (preserves the tap gesture).
+    const adPromise: Promise<{ completed: boolean; noFeed?: boolean; error?: string }> =
+      network === "monetag"
+        ? showRewardedAd({ zoneId, ymid: sessionId, requestVar: "watch_button" })
+        : showAdsGramAd();
 
     setBusyAction(true);
     addTerminalLog([`POST /api/ads/start (session ${sessionId.slice(0, 8)}…) → opening real Monetag ad…`]);
 
     // 2) Register the session in the background so the row exists while the ad plays.
-    const regPromise = api.post("/api/ads/start", { sessionId }).catch((err) => {
+    const regPromise = api.post("/api/ads/start", { sessionId, network }).catch((err) => {
       addTerminalLog([`✗ /api/ads/start failed: ${apiErrorMessage(err)}`]);
       return null;
     });
@@ -588,7 +604,14 @@ export default function App() {
     await regPromise;
 
     if (!outcome.completed) {
-      addTerminalLog([`✗ Real ad not shown: ${outcome.error || "no feed / unavailable"}`]);
+      // Free the in-progress lock + close the pending row so the user can retry soon.
+      api.post("/api/ads/abandon", { sessionId }).catch(() => undefined);
+      if (network === "adsgram") {
+        addTerminalLog([`✗ AdsGram ad not completed: ${outcome.error || "skipped / no feed"}`]);
+        finish("skipped", outcome.error);
+        return;
+      }
+      addTerminalLog([`✗ Monetag ad not shown: ${outcome.error || "no feed / unavailable"}`]);
       const msg = outcome.error || "";
       const reason = outcome.noFeed
         ? "no_ads"
@@ -601,8 +624,48 @@ export default function App() {
       return;
     }
 
-    // 4) Poll for the authoritative S2S postback outcome.
-    addTerminalLog([`GET /api/ads/status/${sessionId.slice(0, 8)}… → awaiting S2S confirmation…`]);
+    if (network === "adsgram") {
+      // AdsGram has no S2S postback; the SDK-verified resolved promise is the signal.
+      try {
+        const { data } = await api.post<{ status: string; reward: number; balance: number }>(
+          "/api/ads/complete",
+          { sessionId }
+        );
+        if (data.status === "confirmed") {
+          const coins = data.reward;
+          const rate2 = appConfig.usdToCoinRate || 1000;
+          const oldLevel = Math.floor(stats.adsWatchedCount / 10) + 1;
+          setStats((prev) => ({
+            ...prev,
+            balance: (data.balance ?? 0) / rate2,
+            lifetimeEarnings: prev.lifetimeEarnings + coins / rate2,
+            adsWatchedCount: prev.adsWatchedCount + 1,
+          }));
+          const newLevel = Math.floor((stats.adsWatchedCount + 1) / 10) + 1;
+          if (newLevel > oldLevel) {
+            setTimeout(() => {
+              setLevelUpData({ newLevel, oldLevel });
+              fireLevelUpConfetti();
+            }, 600);
+          }
+          addTerminalLog([`✓ AdsGram view verified by SDK. Credited +${coins} ${sym}.`]);
+          playSuccessSound();
+          setAdWatching(false);
+          setBusyAction(false);
+          setAdMsg(en ? `✓ Ad watched! +${coins} ${sym} credited.` : `✓ Реклама просмотрена! +${coins} ${sym}.`);
+          setAdCooldownLeft(adCooldownSeconds);
+        } else {
+          finish(data.status === "unrewarded" ? "unrewarded" : "other");
+        }
+      } catch (err) {
+        addTerminalLog([`✗ /api/ads/complete failed: ${apiErrorMessage(err)}`]);
+        finish("other", apiErrorMessage(err));
+      }
+      return;
+    }
+
+    // Monetag: poll for the authoritative S2S postback outcome.
+    addTerminalLog([`GET /api/ads/status/${sessionId.slice(0, 8)}… → awaiting Monetag S2S confirmation…`]);
     const status = await pollAdStatus(sessionId);
     const rate = appConfig.usdToCoinRate;
 
@@ -624,7 +687,7 @@ export default function App() {
           fireLevelUpConfetti();
         }, 600);
       }
-      addTerminalLog([`✓ S2S postback verified (valued). Credited +${coins} ${sym}.`]);
+      addTerminalLog([`✓ Monetag S2S postback verified (valued). Credited +${coins} ${sym}.`]);
       playSuccessSound();
       // Balance increase above triggers the coin float in Dashboard; show a clear prompt too.
       setAdWatching(false);
@@ -635,12 +698,12 @@ export default function App() {
     }
 
     if (status?.status === "unrewarded") {
-      addTerminalLog(["⚠ Ad viewed but not valued (unpaid traffic). No reward credited."]);
+      addTerminalLog(["⚠ Monetag view not valued (unpaid traffic). No reward credited."]);
       finish("unrewarded", outcome.error);
       return;
     }
 
-    addTerminalLog(["⏳ Reward pending confirmation — balance will sync shortly."]);
+    addTerminalLog(["⏳ Monetag reward pending confirmation — balance will sync shortly."]);
     api.get<{ balance: number }>("/api/ledger/balance")
       .then((b) => setStats((prev) => ({ ...prev, balance: b.data.balance / rate })))
       .catch(() => undefined);
@@ -931,6 +994,7 @@ export default function App() {
                       streakWeek={checkin.week}
                       streakDays={checkin.streakDays}
                       feed={feed}
+                      adsgramEnabled={adsgramEnabled}
                       language={language}
                       onSpin={handleSpin}
                       spinCooldownLeft={spinCooldown}

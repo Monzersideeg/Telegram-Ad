@@ -47,6 +47,11 @@ export const env = {
     paramEvent: process.env.MONETAG_PARAM_EVENT || "event", // impression / click
   },
 
+  adsgram: {
+    // AdsGram "block id" (e.g. "int-39617"). Empty => AdsGram disabled in the UI.
+    blockId: process.env.ADSGRAM_BLOCK_ID || "",
+  },
+
   economy: {
     rewardPerAd: num("REWARD_PER_AD", 10),
     adCooldownSeconds: num("AD_COOLDOWN_SECONDS", 45),

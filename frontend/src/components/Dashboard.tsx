@@ -19,11 +19,12 @@ interface DashboardProps {
   watchHistory: AdWatchLog[];
   onNavigateTab: (tab: string) => void;
   telegramUser: { username: string; fullName: string; isPremium: boolean };
-  onWatchAd: () => Promise<void>;
+  onWatchAd: (network: "monetag" | "adsgram") => Promise<void>;
   rewardPerAdCoins: number;
   adWatching: boolean;
   adMsg: string | null;
   adCooldownLeft: number;
+  adsgramEnabled: boolean;
   maxAdsPerDay: number;
   streakWeek: { dow: string; done: boolean }[];
   streakDays: number;
@@ -47,6 +48,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   adWatching,
   adMsg,
   adCooldownLeft,
+  adsgramEnabled,
   maxAdsPerDay,
   streakWeek,
   streakDays,
@@ -162,10 +164,55 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Click on the massive circular "WATCH AD" trigger → opens a REAL Monetag ad.
   // In-progress / status / cooldown state is owned by App (controlled via props), so
   // it survives switching tabs — Dashboard no longer loses it on unmount/remount.
-  const handleWatchAdClick = async () => {
+  const handleWatchAdClick = async (network: "monetag" | "adsgram") => {
     if (adCooldownLeft > 0 || adWatching) return;
-    await onWatchAd();
+    await onWatchAd(network);
   };
+
+  // Renders one network's watch button (Monetag / AdsGram share the same states).
+  const watchBtn = (network: "monetag" | "adsgram", label: string, gradient: string) => (
+    <button
+      id={`watchAdBtn-${network}`}
+      onClick={() => handleWatchAdClick(network)}
+      disabled={adCooldownLeft > 0 || adWatching}
+      aria-label={
+        adWatching
+          ? "Loading ad"
+          : adCooldownLeft > 0
+          ? `Locked ${adCooldownLeft}s`
+          : `Watch ${label} ad`
+      }
+      className={`relative w-28 h-28 sm:w-32 sm:h-32 rounded-3xl flex flex-col items-center justify-center gap-1 font-bold transition-all duration-300 select-none shadow-xl border border-white/20 active:scale-95 cursor-pointer outline-none ${
+        adCooldownLeft > 0 || adWatching
+          ? "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200"
+          : `bg-gradient-to-br ${gradient} text-white hover:scale-[1.02]`
+      }`}
+    >
+      {adWatching ? (
+        <>
+          <RefreshCw className="w-7 h-7 text-white mb-0.5 animate-spin" />
+          <span className="text-[9px] tracking-wider uppercase font-extrabold">
+            {language === "en" ? "Loading…" : "Загрузка…"}
+          </span>
+        </>
+      ) : adCooldownLeft > 0 ? (
+        <>
+          <Lock className="w-6 h-6 text-slate-300 mb-0.5" />
+          <span className="text-xs tracking-wider uppercase font-mono">{adCooldownLeft}s</span>
+        </>
+      ) : (
+        <>
+          <div className="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center mb-0.5">
+            <Play className="w-5 h-5 fill-current text-white translate-x-0.5" />
+          </div>
+          <span className="text-[11px] tracking-wider uppercase font-extrabold">{label}</span>
+          <span className="text-[9px] opacity-90 font-mono">
+            +{rewardPerAdCoins || Math.round(0.01 * appConfig.usdToCoinRate)} {appConfig.currencySymbol}
+          </span>
+        </>
+      )}
+    </button>
+  );
 
   const handleCaptchaSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -301,40 +348,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* 2. WATCH AD big button section */}
       <div className="flex flex-col items-center py-2 relative">
         <div className="relative">
-          {/* Main button styled exactly like sketch */}
-          <button
-            id="watchAdBtn"
-            onClick={handleWatchAdClick}
-            disabled={adCooldownLeft > 0 || adWatching}
-            aria-label={adWatching ? "Loading ad" : adCooldownLeft > 0 ? `Watch ad locked, ${adCooldownLeft} seconds remaining` : "Watch ad to earn coins"}
-            className={`relative w-36 h-36 rounded-full flex flex-col items-center justify-center gap-1 font-bold transition-all duration-300 select-none shadow-xl border border-emerald-400/20 active:scale-95 cursor-pointer outline-none ${
-              adCooldownLeft > 0
-                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
-                : 'btn-primary bg-gradient-to-br from-emerald-400 to-green-500 text-white pulse-ring hover:scale-[1.02]'
-            }`}
-          >
-            {adWatching ? (
-              <>
-                <RefreshCw className="w-8 h-8 text-white mb-1 animate-spin" />
-                <span className="text-[10px] tracking-wider uppercase font-extrabold">{language === 'en' ? 'Loading ad…' : 'Загрузка…'}</span>
-                <span className="text-[9px] opacity-90 font-mono">{language === 'en' ? 'stay here' : 'не закрывайте'}</span>
-              </>
-            ) : adCooldownLeft > 0 ? (
-              <>
-                <Lock className="w-7 h-7 text-slate-300 mb-1" />
-                <span className="text-xs tracking-wider uppercase font-mono">{adCooldownLeft}s</span>
-                <span className="text-[9px] text-slate-400 font-medium">{t.cooldown.toUpperCase()}</span>
-              </>
-            ) : (
-              <>
-                <div className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center mb-0.5">
-                  <Play className="w-6 h-6 fill-current text-white translate-x-0.5" />
-                </div>
-                <span className="text-xs tracking-wider uppercase font-extrabold">{t.watchAd}</span>
-                <span className="text-[9px] opacity-90 font-mono">+{rewardPerAdCoins || Math.round(0.01 * appConfig.usdToCoinRate)} {appConfig.currencySymbol}</span>
-              </>
-            )}
-          </button>
+          {/* Two watch buttons — one per ad network */}
+          <div className="flex items-stretch gap-3">
+            {watchBtn("monetag", "Monetag", "from-emerald-400 to-green-500")}
+            {adsgramEnabled && watchBtn("adsgram", "AdsGram", "from-sky-400 to-blue-500")}
+          </div>
 
           {/* Floating Coin Rewards Animation layer */}
           <div id="coinFloat" className="absolute left-1/2 top-1/2 pointer-events-none w-0 h-0">

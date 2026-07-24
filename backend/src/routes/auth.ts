@@ -53,6 +53,8 @@ authRouter.get(
         maxAdsPerDay: env.economy.maxAdsPerDay,
         referralBonusPct: env.economy.referralBonusPct,
         monetagZoneId: env.monetag.zoneId,
+        adsgramBlockId: env.adsgram.blockId,
+        adsgramEnabled: !!env.adsgram.blockId,
       },
     });
   })
