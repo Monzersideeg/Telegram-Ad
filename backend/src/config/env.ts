@@ -42,6 +42,7 @@ export const env = {
     // Task block should be in the task-xxx format and renders as <adsgram-task> below the watch button.
     taskBlockId: process.env.ADSGRAM_TASK_BLOCK_ID || "",
     taskReward: num("ADSGRAM_TASK_REWARD", num("REWARD_PER_AD", 10)),
+    rewardSecret: process.env.ADSGRAM_REWARD_SECRET || "",
   },
 
   economy: {

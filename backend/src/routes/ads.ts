@@ -2,19 +2,118 @@ import { Router } from "express";
 import crypto from "node:crypto";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler, HttpError } from "../middleware/error.js";
-import { checkAdRateLimit, redis } from "../lib/redis.js";
+import { checkAdRateLimit, recordAdReward, redis } from "../lib/redis.js";
 import { query, withTransaction } from "../db/pool.js";
-import { confirmAdView, creditInTx } from "../services/ledger.js";
+import { confirmAdView, creditInTx, getBalance } from "../services/ledger.js";
 import { env } from "../config/env.js";
 import type { AuthedRequest } from "../types.js";
 
 export const adsRouter = Router();
-adsRouter.use(requireAuth);
 
 const START_LOCK_SEC = 120;
 const startLockKey = (userId: number) => `ad:startlock:${userId}`;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 const MIN_WATCH_MS = 2500;
+
+function firstString(v: unknown): string {
+  return typeof v === "string" ? v.trim() : Array.isArray(v) && typeof v[0] === "string" ? v[0].trim() : "";
+}
+
+async function settleLatestPendingAdsGramSession(params: {
+  telegramId: number;
+  source: "reward_url" | "client_complete";
+  ip?: string | null;
+}) {
+  const user = await query<{ id: number }>("SELECT id FROM users WHERE telegram_id = $1", [params.telegramId]);
+  const userId = user.rows[0]?.id;
+  if (!userId) return { result: "user_not_found" as const, reward: 0, balance: 0 };
+
+  const pending = await query<{ session_id: string }>(
+    `SELECT session_id
+       FROM ad_views
+      WHERE user_id = $1
+        AND ad_network = 'adsgram'
+        AND status = 'pending'
+        AND created_at >= now() - INTERVAL '10 minutes'
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [userId]
+  );
+
+  if (pending.rows[0]) {
+    const settled = await confirmAdView({
+      sessionId: pending.rows[0].session_id,
+      rewarded: true,
+      eventType: `adsgram_${params.source}`,
+      ip: params.ip ?? null,
+    });
+    try {
+      await redis.del(startLockKey(userId));
+      if (settled.result === "confirmed") await recordAdReward(userId, env.economy.adCooldownSeconds);
+    } catch {
+      /* optional rate-limit bookkeeping */
+    }
+    return {
+      result: settled.result,
+      reward: "reward" in settled ? settled.reward : 0,
+      balance: "balance" in settled ? settled.balance : await getBalance(userId),
+    };
+  }
+
+  // If client completion already settled this reward before AdsGram's server GET arrived,
+  // return duplicate/ok instead of crediting again.
+  const recent = await query<{ reward_amount: string }>(
+    `SELECT reward_amount::text
+       FROM ad_views
+      WHERE user_id = $1
+        AND ad_network = 'adsgram'
+        AND status = 'confirmed'
+        AND confirmed_at >= now() - INTERVAL '10 minutes'
+      ORDER BY confirmed_at DESC
+      LIMIT 1`,
+    [userId]
+  );
+
+  if (recent.rows[0]) {
+    return { result: "duplicate" as const, reward: Number(recent.rows[0].reward_amount || 0), balance: await getBalance(userId) };
+  }
+
+  return { result: "no_pending_session" as const, reward: 0, balance: await getBalance(userId) };
+}
+
+/**
+ * GET /api/ads/reward-url?secret=...&userid=[userId]
+ * Public AdsGram Reward URL endpoint. Paste this URL into the AdsGram reward block
+ * settings. AdsGram replaces [userId] with the Telegram ID and calls this endpoint
+ * after the reward event. We only credit a recent pending AdsGram session for that
+ * user; otherwise we return ok without minting coins.
+ */
+adsRouter.get(
+  "/reward-url",
+  asyncHandler(async (req, res) => {
+    if (env.adsgram.rewardSecret) {
+      const secret = firstString(req.query.secret);
+      if (secret !== env.adsgram.rewardSecret) throw new HttpError(403, "bad_secret", "Invalid reward URL secret");
+    }
+
+    const rawUserId = firstString(req.query.userid ?? req.query.userId ?? req.query.user_id ?? req.query.tgid ?? req.query.telegram_id);
+    const telegramId = Number(rawUserId);
+    if (!Number.isFinite(telegramId) || telegramId <= 0) {
+      throw new HttpError(400, "bad_userid", "Missing or invalid Telegram user id");
+    }
+
+    const result = await settleLatestPendingAdsGramSession({
+      telegramId,
+      source: "reward_url",
+      ip: req.ip ?? null,
+    });
+
+    // Always JSON 200 after authentication/user parsing so AdsGram does not retry forever.
+    res.json({ ok: true, ...result });
+  })
+);
+
+adsRouter.use(requireAuth);
 
 /**
  * POST /api/ads/start
@@ -95,28 +194,41 @@ adsRouter.post(
     const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId.trim() : "";
     if (!/^[0-9a-f-]{8,}$/i.test(sessionId)) throw new HttpError(400, "bad_session");
 
-    const row = await query<{ ad_network: string; status: string; created_at: string }>(
-      `SELECT ad_network, status, created_at::text AS created_at FROM ad_views WHERE session_id = $1 AND user_id = $2`,
+    const row = await query<{ ad_network: string; status: string; created_at: string; reward_amount: string }>(
+      `SELECT ad_network, status, created_at::text AS created_at, reward_amount::text
+         FROM ad_views WHERE session_id = $1 AND user_id = $2`,
       [sessionId, user.id]
     );
-    if (!row.rows[0]) throw new HttpError(404, "not_found");
-    if (row.rows[0].ad_network !== "adsgram") throw new HttpError(403, "wrong_network", "Only AdsGram sessions are supported");
-    if (row.rows[0].status !== "pending") throw new HttpError(409, "already_settled");
-    const ageMs = Date.now() - new Date(row.rows[0].created_at).getTime();
+    const view = row.rows[0];
+    if (!view) throw new HttpError(404, "not_found");
+    if (view.ad_network !== "adsgram") throw new HttpError(403, "wrong_network", "Only AdsGram sessions are supported");
+
+    if (view.status === "confirmed") {
+      res.json({ status: "confirmed", reward: Number(view.reward_amount || 0), balance: await getBalance(user.id) });
+      return;
+    }
+    if (view.status !== "pending") throw new HttpError(409, "already_settled");
+
+    const ageMs = Date.now() - new Date(view.created_at).getTime();
     if (ageMs < MIN_WATCH_MS) throw new HttpError(425, "too_soon", "Ad not watched long enough");
 
     const result = await confirmAdView({
       sessionId,
       rewarded: true,
-      eventType: "adsgram_reward_complete",
+      eventType: "adsgram_client_complete",
       ip: req.ip ?? null,
     });
-    try { await redis.del(startLockKey(user.id)); } catch { /* ignore */ }
+    try {
+      await redis.del(startLockKey(user.id));
+      if (result.result === "confirmed") await recordAdReward(user.id, env.economy.adCooldownSeconds);
+    } catch {
+      /* optional rate-limit bookkeeping */
+    }
 
     res.json({
       status: result.result,
       reward: "reward" in result ? result.reward : 0,
-      balance: "balance" in result ? result.balance : 0,
+      balance: "balance" in result ? result.balance : await getBalance(user.id),
     });
   })
 );
