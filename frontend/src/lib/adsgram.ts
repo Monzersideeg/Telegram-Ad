@@ -72,9 +72,9 @@ export async function preloadAdsGram(blockId: string): Promise<boolean> {
 export function showAdsGramAd(): Promise<AdsOutcome> {
   if (!controller) return Promise.resolve({ completed: false, error: "adsgram not ready" });
   try {
-    return controller.show().then<AdsOutcome>(
-      (r) => ({ completed: r?.done !== false && r?.error !== true, error: r?.description }),
-      (r) => ({ completed: false, error: (r && r.description) || "adsgram error" })
+    return controller.show().then(
+      (r): AdsOutcome => ({ completed: r?.done !== false && r?.error !== true, error: r?.description }),
+      (r): AdsOutcome => ({ completed: false, error: (r && r.description) || "adsgram error" })
     );
   } catch (e) {
     return Promise.resolve({

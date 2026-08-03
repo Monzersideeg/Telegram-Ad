@@ -42,13 +42,13 @@ function getHandler(zoneId: string): Handler {
   const queue: Queued[] = [];
   let settled = false;
   const doc = typeof document !== "undefined" ? document.body || document.documentElement : null;
-  const asFn = (window as Record<string, unknown>)[globalName] as
+  const asFn = (window as unknown as Record<string, unknown>)[globalName] as
     | ((o: ShowOptions | string) => Promise<AdResult | undefined>)
     | undefined;
 
   const flush = () => {
     settled = true;
-    const fn = (window as Record<string, unknown>)[globalName] as
+    const fn = (window as unknown as Record<string, unknown>)[globalName] as
       | ((o: ShowOptions | string) => Promise<AdResult | undefined>)
       | undefined;
     for (const [opts, resolve, reject] of queue) {
@@ -69,7 +69,7 @@ function getHandler(zoneId: string): Handler {
   }
 
   const handler: Handler = (opts) => {
-    const fn = (window as Record<string, unknown>)[globalName] as
+    const fn = (window as unknown as Record<string, unknown>)[globalName] as
       | ((o: ShowOptions | string) => Promise<AdResult | undefined>)
       | undefined;
     if (typeof fn === "function") return fn(opts as ShowOptions | string);
@@ -140,7 +140,7 @@ export async function showRewardedAd(opts: {
     // did preload succeed? This disambiguates "script blocked/zone invalid" (global=
     // undefined) from "feed/network failed at show time" (global=function).
     const globalName = `show_${opts.zoneId}`;
-    const g = typeof (window as Record<string, unknown>)[globalName];
+    const g = typeof (window as unknown as Record<string, unknown>)[globalName];
     const pre = preloaded.get(Number(opts.zoneId)) === true;
     const diag = `${message} [global=${g}, preloaded=${pre}]`;
     return {

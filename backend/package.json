@@ -16,7 +16,8 @@
     "test:initdata": "tsx scripts/test-initdata.ts",
     "test:games": "tsx scripts/test-games-pgmem.ts",
     "test:monetag": "tsx scripts/test-monetag-live.ts",
-    "test:integration": "tsx scripts/integration-supabase.ts"
+    "test:integration": "tsx scripts/integration-supabase.ts",
+    "admin:hash-password": "tsx scripts/hash-admin-password.ts"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",

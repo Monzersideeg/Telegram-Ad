@@ -10,7 +10,7 @@
 import { useState, useEffect, lazy, Suspense, useMemo, type ReactNode } from "react";
 import {
   Play, Users, Trophy, Wallet, ShieldCheck, CheckSquare,
-  ShieldCheck as ShieldIcon, Zap, Check,
+  Zap, Check,
 } from "lucide-react";
 
 import { Header } from "./components/Header";
@@ -43,6 +43,18 @@ import { isDevAdMode, preloadAd, showRewardedAd, simulateAdDev } from "./lib/mon
 import { preloadAdsGram, showAdsGramAd } from "./lib/adsgram";
 
 const TELEGRAM_APP_URL = "https://t.me/AcEarn_bot/app";
+
+type RouteName = "app" | "admin" | "privacy" | "terms" | "landing";
+
+function routeFromLocation(): RouteName {
+  const path = window.location.pathname;
+  const hash = window.location.hash;
+  if (path === "/admin" || hash === "#/admin" || hash === "#/admin/dashboard") return "admin";
+  if (path === "/privacy" || hash === "#/privacy") return "privacy";
+  if (path === "/terms" || hash === "#/terms") return "terms";
+  if (path === "/landing" || hash === "#/landing") return "landing";
+  return "app";
+}
 
 /** Spinner shown while a lazy tab chunk downloads. */
 const TabLoading = () => (
@@ -87,8 +99,8 @@ interface MeResponse {
 }
 
 export default function App() {
-  // Navigation: 'landing' | 'dashboard' | 'admin' | 'privacy' | 'terms'
-  const [currentPath, setCurrentPath] = useState<string>("landing");
+  // Route names: root "/" is the app. Hidden admin lives at "/admin" only.
+  const [currentPath, setCurrentPath] = useState<RouteName>(() => routeFromLocation());
   const [activeTab, setActiveTab] = useState<string>("home");
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
   const [language, setLanguage] = useState<"en" | "ru">("en");
@@ -190,36 +202,27 @@ export default function App() {
   };
 
   const navigateTo = (pathName: string) => {
-    // Outside Telegram, the "app" routes open the Telegram Mini App link instead.
-    if (!authed && (pathName === "/dashboard" || pathName === "/login" || pathName === "/admin")) {
-      window.open(TELEGRAM_APP_URL, "_blank");
-      return;
-    }
-    window.location.hash = `#${pathName}`;
+    const normalized = pathName === "/dashboard" || pathName === "/login" ? "/" : pathName;
+    window.history.pushState({}, "", normalized);
+    setCurrentPath(routeFromLocation());
   };
 
   const handleSecretKnock = () => {
-    const next = knockCount + 1;
-    setKnockCount(next);
-    if (next >= 5) {
-      setKnockCount(0);
-      navigateTo("/admin");
-    }
+    // Admin is intentionally hidden and reachable only by directly opening /admin.
+    // Keep the old logo tap harmless so no admin entry appears inside the app UI.
+    setKnockCount((n) => (n + 1) % 5);
   };
 
-  // ----- hash router -----
+  // ----- lightweight router -----
   useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash;
-      if (hash === "#/privacy") setCurrentPath("privacy");
-      else if (hash === "#/terms") setCurrentPath("terms");
-      else if (hash === "#/dashboard") setCurrentPath("dashboard");
-      else if (hash === "#/admin/dashboard" || hash === "#/admin") setCurrentPath("admin");
-      else setCurrentPath("landing");
+    const syncRoute = () => setCurrentPath(routeFromLocation());
+    window.addEventListener("hashchange", syncRoute);
+    window.addEventListener("popstate", syncRoute);
+    syncRoute();
+    return () => {
+      window.removeEventListener("hashchange", syncRoute);
+      window.removeEventListener("popstate", syncRoute);
     };
-    window.addEventListener("hashchange", handleHashChange);
-    handleHashChange();
-    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   // ----- data loading from the existing backend -----
@@ -476,12 +479,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-login: once authed, go straight to the dashboard.
-  useEffect(() => {
-    if (!loading && authed && (currentPath === "landing")) {
-      window.location.hash = "#/dashboard";
-    }
-  }, [loading, authed, currentPath]);
+  // Root "/" is already the app route; no #/dashboard redirect is needed.
 
   // Poll a watch session until the S2S postback settles it.
   const pollAdStatus = async (sessionId: string): Promise<{ status: string; reward: number } | null> => {
@@ -722,7 +720,7 @@ export default function App() {
       } else {
         setStats((prev) => ({ ...prev, balance: data.balance / rate, lifetimeEarnings: prev.lifetimeEarnings + data.reward / rate }));
         setStreak(data.streakDays);
-        setCheckin({ streakDays: data.streakDays, checkedInToday: true, nextReward: data.reward });
+        setCheckin((prev) => ({ ...prev, streakDays: data.streakDays, checkedInToday: true, nextReward: data.reward }));
         setWatchHistory((prev) => [
           { id: `checkin_${Date.now()}`, campaignId: "streak_bonus", title: `Daily Check-In (Day ${data.streakDays})`, reward: data.reward / rate, timestamp: new Date().toISOString() },
           ...prev,
@@ -857,23 +855,7 @@ export default function App() {
     return <TabView><TermsOfService appConfig={appConfig} onNavigate={navigateTo} language={language} /></TabView>;
   }
   if (currentPath === "admin") {
-    if (!authed || !isAdmin) {
-      return (
-        <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center text-white space-y-4 p-6">
-          <ShieldIcon className="w-12 h-12 text-red-500 animate-pulse" />
-          <h2 className="text-sm uppercase tracking-widest text-slate-400 text-center">
-            {authed ? "Your account is not an administrator." : "Authenticate via Telegram to continue."}
-          </h2>
-          <button
-            onClick={() => navigateTo(authed ? "/dashboard" : "/login")}
-            className="px-4 py-2 bg-emerald-500 text-slate-950 text-xs font-bold rounded-xl cursor-pointer"
-          >
-            {authed ? "Back to App" : "Open in Telegram"}
-          </button>
-        </div>
-      );
-    }
-    return <TabView><MyAdmin onLogout={handleLogout} /></TabView>;
+    return <TabView><MyAdmin onLogout={() => navigateTo("/")} /></TabView>;
   }
 
   // Loading splash
@@ -886,14 +868,36 @@ export default function App() {
     );
   }
 
-  // Not authed (outside Telegram) → Landing page
-  if (!authed || currentPath === "landing") {
-    if (!authed) {
-      return <TabView><LandingPage appConfig={appConfig} onNavigate={navigateTo} language={language} /></TabView>;
-    }
+  // Optional marketing/info page is still available at /landing, but root "/" is the app.
+  if (currentPath === "landing") {
+    return <TabView><LandingPage appConfig={appConfig} onNavigate={navigateTo} language={language} /></TabView>;
   }
 
-  // DEFAULT: authenticated dashboard
+  // Outside Telegram there is no signed initData, so the real app cannot load user data.
+  // Show a compact app gate instead of the old marketing landing page.
+  if (!authed) {
+    return (
+      <div className="min-h-screen bg-[#f0f8ff] flex items-center justify-center p-6">
+        <div className="w-full max-w-sm bg-white border border-slate-200 rounded-3xl shadow-xl p-6 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center">
+            <Zap className="w-8 h-8 fill-emerald-500" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-slate-800">AcEarn</h1>
+            <p className="text-xs text-slate-500 mt-1">Open the Telegram Mini App to earn ACN coins.</p>
+          </div>
+          <button
+            onClick={() => window.open(TELEGRAM_APP_URL, "_blank", "noopener,noreferrer")}
+            className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-sm rounded-2xl transition"
+          >
+            Open AcEarn in Telegram
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // DEFAULT: authenticated app at root "/"
   return (
     <div className="min-h-screen bg-[#f0f8ff] font-sans flex items-center justify-center p-0 md:p-8 lg:p-12 relative overflow-hidden select-none">
       <div className="absolute top-[5%] left-[5%] w-[400px] h-[400px] rounded-full bg-emerald-500/10 blur-[100px] pointer-events-none" />

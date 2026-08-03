@@ -220,8 +220,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (activeCampaign) {
         const rewardValue = activeCampaign.rewardAmount;
         
-        // Trigger claim callback
-        onAdWatched(rewardValue, activeCampaign.title);
+        // Legacy simulated overlay is disabled; rewards are now server-verified via onWatchAd.
+        void rewardValue;
 
         // Spawn a beautiful float particle
         const coinAmount = Math.round((monetagConfig.isEnabled ? rewardValue * 1.5 : rewardValue) * appConfig.usdToCoinRate);
@@ -236,8 +236,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         setActiveCampaign(null);
         setIsAdCompleted(false);
 
-        // Lock button into 30 seconds cooldown as described in reference sketch
-        setCooldownTimeLeft(30);
+        // Cooldown is now owned by App after the verified ad flow settles.
       }
     } else {
       setCaptchaError(true);

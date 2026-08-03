@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ShieldCheck, LogOut, ArrowLeft, RefreshCw } from "lucide-react";
-import { api, apiErrorMessage } from "../../lib/api";
+import { ShieldCheck, LogOut, ArrowLeft, RefreshCw, Lock, Mail, KeyRound, AlertCircle } from "lucide-react";
+import { api, apiErrorMessage, clearAdminCsrfToken, setAdminCsrfToken } from "../../lib/api";
 import { formatCoins, timeAgo } from "../../lib/format";
 
-// Admin dashboard wired to the EXISTING backend /api/admin/* endpoints.
-// Access is enforced server-side (requireAdmin: telegram-id allow-list) on every call.
+// Hidden /admin dashboard. Authentication is independent from Telegram user auth:
+// backend issues a signed, httpOnly admin cookie after email/password login and
+// requires CSRF headers for every mutating admin request.
 
 interface AdminStats {
   users: number;
@@ -13,6 +14,14 @@ interface AdminStats {
   pendingWithdrawalCoins: number;
   confirmedAdsToday: number;
   flaggedUsers: number;
+  totalWithdrawals?: number;
+  paidWithdrawalCoins?: number;
+  transactions?: number;
+  coinsPerUsd?: number;
+  minWithdrawal?: number;
+  rewardPerAd?: number;
+  maxAdsPerDay?: number;
+  adsgramEnabled?: boolean;
 }
 interface AdminWithdrawal {
   id: number;
@@ -45,6 +54,124 @@ interface Props {
 }
 
 export const MyAdmin: React.FC<Props> = ({ onLogout }) => {
+  const [checking, setChecking] = useState(true);
+  const [authed, setAuthed] = useState(false);
+  const [adminEmail, setAdminEmail] = useState<string>("");
+
+  const loadSession = useCallback(async () => {
+    setChecking(true);
+    try {
+      const r = await api.get<{ admin: { email: string }; csrf: string }>("/api/admin/auth/me");
+      setAdminCsrfToken(r.data.csrf);
+      setAdminEmail(r.data.admin.email);
+      setAuthed(true);
+    } catch {
+      clearAdminCsrfToken();
+      setAuthed(false);
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSession();
+  }, [loadSession]);
+
+  const logout = async () => {
+    try {
+      await api.post("/api/admin/auth/logout");
+    } catch {
+      /* ignore */
+    }
+    clearAdminCsrfToken();
+    setAuthed(false);
+    onLogout();
+  };
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!authed) {
+    return <AdminLogin onLoggedIn={(email, csrf) => { setAdminCsrfToken(csrf); setAdminEmail(email); setAuthed(true); }} />;
+  }
+
+  return <AdminShell adminEmail={adminEmail} onLogout={logout} />;
+};
+
+const AdminLogin: React.FC<{ onLoggedIn: (email: string, csrf: string) => void }> = ({ onLoggedIn }) => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.post<{ admin: { email: string }; csrf: string }>("/api/admin/auth/login", { email, password });
+      onLoggedIn(r.data.admin.email, r.data.csrf);
+    } catch (error) {
+      setErr(apiErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white font-sans flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.14),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(34,197,94,0.1),transparent_30%)]" />
+      <form onSubmit={submit} className="relative z-10 w-full max-w-sm bg-slate-900/95 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5">
+        <div className="text-center space-y-2">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 mx-auto flex items-center justify-center">
+            <Lock className="w-7 h-7 text-emerald-400" />
+          </div>
+          <h1 className="text-xl font-black tracking-tight">AcEarn Admin</h1>
+          <p className="text-xs text-slate-400">Hidden console · email/password required</p>
+        </div>
+
+        {err && (
+          <div className="flex gap-2 text-xs bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-2xl p-3">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{err}</span>
+          </div>
+        )}
+
+        <label className="block space-y-1.5">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Email</span>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="username"
+              className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-3 py-3 text-sm text-white focus:outline-none focus:border-emerald-400" />
+          </div>
+        </label>
+
+        <label className="block space-y-1.5">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Password</span>
+          <div className="relative">
+            <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" autoComplete="current-password"
+              className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-3 py-3 text-sm text-white focus:outline-none focus:border-emerald-400" />
+          </div>
+        </label>
+
+        <button disabled={busy || !email || !password} className="w-full py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-black disabled:opacity-50">
+          {busy ? "Checking…" : "Login securely"}
+        </button>
+
+        <a href="/" className="block text-center text-xs text-slate-500 hover:text-slate-300">Back to app</a>
+      </form>
+    </div>
+  );
+};
+
+const AdminShell: React.FC<{ adminEmail: string; onLogout: () => void }> = ({ adminEmail, onLogout }) => {
   const [tab, setTab] = useState<"overview" | "withdrawals" | "users">("overview");
   const tabs = ["overview", "withdrawals", "users"] as const;
 
@@ -53,7 +180,10 @@ export const MyAdmin: React.FC<Props> = ({ onLogout }) => {
       <header className="sticky top-0 z-10 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 md:px-6 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-emerald-400" />
-          <span className="font-extrabold tracking-tight text-sm md:text-base">AcEarn Admin</span>
+          <div>
+            <span className="font-extrabold tracking-tight text-sm md:text-base block">AcEarn Admin</span>
+            <span className="text-[10px] text-slate-500 hidden sm:block">{adminEmail}</span>
+          </div>
         </div>
         <nav className="flex items-center gap-1 bg-slate-950 rounded-xl p-1 border border-slate-800">
           {tabs.map((t) => (
@@ -69,16 +199,16 @@ export const MyAdmin: React.FC<Props> = ({ onLogout }) => {
           ))}
         </nav>
         <div className="flex items-center gap-3">
-          <a href="#/dashboard" className="text-xs text-slate-400 hover:text-white flex items-center gap-1">
+          <a href="/" className="text-xs text-slate-400 hover:text-white flex items-center gap-1">
             <ArrowLeft className="w-3.5 h-3.5" /> App
           </a>
           <button onClick={onLogout} className="text-xs text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer">
-            <LogOut className="w-3.5 h-3.5" /> Exit
+            <LogOut className="w-3.5 h-3.5" /> Logout
           </button>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto p-4 md:p-6">
+      <main className="max-w-4xl mx-auto p-4 md:p-6">
         {tab === "overview" && <Overview />}
         {tab === "withdrawals" && <Withdrawals />}
         {tab === "users" && <UsersAdmin />}
@@ -105,18 +235,34 @@ const Overview: React.FC = () => {
     ["Coins in circulation", formatCoins(stats.totalCoins)],
     ["Pending withdrawals", formatCoins(stats.pendingWithdrawals)],
     ["Pending coins", formatCoins(stats.pendingWithdrawalCoins)],
+    ["Paid / approved coins", formatCoins(stats.paidWithdrawalCoins ?? 0)],
     ["Confirmed ads today", formatCoins(stats.confirmedAdsToday)],
+    ["All withdrawals", formatCoins(stats.totalWithdrawals ?? 0)],
+    ["Ledger transactions", formatCoins(stats.transactions ?? 0)],
     ["Flagged users", formatCoins(stats.flaggedUsers)],
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-      {cards.map(([label, value]) => (
-        <div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-          <div className="text-2xl font-black text-emerald-400 tracking-tight">{value}</div>
-          <div className="text-[11px] text-slate-400 mt-1">{label}</div>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {cards.map(([label, value]) => (
+          <div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+            <div className="text-2xl font-black text-emerald-400 tracking-tight">{value}</div>
+            <div className="text-[11px] text-slate-400 mt-1">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <h2 className="text-xs font-black text-slate-300 uppercase tracking-wider mb-3">Live app configuration</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <div><span className="text-slate-500 block">Coins / USD</span><b>{formatCoins(stats.coinsPerUsd ?? 0)}</b></div>
+          <div><span className="text-slate-500 block">Min withdrawal</span><b>{formatCoins(stats.minWithdrawal ?? 0)} coins</b></div>
+          <div><span className="text-slate-500 block">Reward / ad</span><b>{formatCoins(stats.rewardPerAd ?? 0)} coins</b></div>
+          <div><span className="text-slate-500 block">AdsGram</span><b className={stats.adsgramEnabled ? "text-emerald-400" : "text-amber-300"}>{stats.adsgramEnabled ? "enabled" : "disabled"}</b></div>
         </div>
-      ))}
+        <p className="text-[11px] text-slate-500 mt-3">These values are read from the deployed backend environment and used by the app APIs.</p>
+      </div>
     </div>
   );
 };

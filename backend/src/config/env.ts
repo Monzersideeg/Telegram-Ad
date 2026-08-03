@@ -52,6 +52,7 @@ export const env = {
     blockId: process.env.ADSGRAM_BLOCK_ID || "",
   },
 
+
   economy: {
     rewardPerAd: num("REWARD_PER_AD", 10),
     adCooldownSeconds: num("AD_COOLDOWN_SECONDS", 45),
@@ -71,6 +72,17 @@ export const env = {
 
   adminTelegramIds: list("ADMIN_TELEGRAM_IDS").map((s) => Number(s)),
   adminSecret: process.env.ADMIN_SECRET || "change-me-admin-secret",
+  adminWeb: {
+    email: process.env.ADMIN_EMAIL || "",
+    // Preferred format: scrypt$<salt_hex>$<hash_hex>. Generate with:
+    //   node -e "const crypto=require('crypto');const p=process.argv[1];const s=crypto.randomBytes(16).toString('hex');crypto.scrypt(p,s,64,(e,k)=>console.log('scrypt$'+s+'$'+k.toString('hex')))" 'YOUR_PASSWORD'
+    passwordHash: process.env.ADMIN_PASSWORD_HASH || "",
+    // Optional local/dev fallback only. Do not use plain ADMIN_PASSWORD in production.
+    password: process.env.ADMIN_PASSWORD || "",
+    sessionSecret: process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_SECRET || "change-me-admin-secret",
+    cookieName: process.env.ADMIN_COOKIE_NAME || "acearn_admin",
+    sessionMaxAgeSeconds: num("ADMIN_SESSION_MAX_AGE_SECONDS", 60 * 60 * 8),
+  },
 };
 
 export type Env = typeof env;
