@@ -190,13 +190,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       <section className="flex flex-col items-center py-2 relative">
         <div className="relative flex items-center justify-center py-3">
-          {!disabled && (
-            <>
-              <span className="absolute w-48 h-48 rounded-full bg-emerald-400/20 animate-ping pointer-events-none" />
-              <span className="absolute w-48 h-48 rounded-full border-[7px] border-emerald-300/45 pointer-events-none" />
-              <span className="absolute w-56 h-56 rounded-full border border-emerald-400/10 pointer-events-none" />
-            </>
-          )}
+          <span className="absolute w-48 h-48 sm:w-52 sm:h-52 rounded-full border-[7px] border-emerald-300/45 pointer-events-none" />
+          <span className="absolute w-44 h-44 sm:w-48 sm:h-48 rounded-full bg-emerald-400/10 pointer-events-none" />
           <button
             id="watchAdBtn"
             onClick={onWatchAd}
