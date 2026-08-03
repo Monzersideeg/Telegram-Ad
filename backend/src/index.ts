@@ -12,6 +12,7 @@ import { ledgerRouter } from "./routes/ledger.js";
 import { referralsRouter } from "./routes/referrals.js";
 import { withdrawalsRouter } from "./routes/withdrawals.js";
 import { adminRouter } from "./routes/admin.js";
+import { adminWebRouter } from "./routes/adminWeb.js";
 import { usersRouter } from "./routes/users.js";
 import { gamesRouter } from "./routes/games.js";
 import { devRouter } from "./routes/dev.js";
@@ -46,6 +47,7 @@ app.use("/api/ledger", ledgerRouter);
 app.use("/api/referrals", referralsRouter);
 app.use("/api/withdrawals", withdrawalsRouter);
 app.use("/api/users", usersRouter);
+app.use("/api/web-admin", adminWebRouter);
 app.use("/api", gamesRouter);
 app.use("/api/admin", adminRouter);
 

@@ -61,7 +61,7 @@ export const MyAdmin: React.FC<Props> = ({ onLogout }) => {
   const loadSession = useCallback(async () => {
     setChecking(true);
     try {
-      const r = await api.get<{ admin: { email: string }; csrf: string }>("/api/admin/auth/me");
+      const r = await api.get<{ admin: { email: string }; csrf: string }>("/api/web-admin/auth/me");
       setAdminCsrfToken(r.data.csrf);
       setAdminEmail(r.data.admin.email);
       setAuthed(true);
@@ -79,7 +79,7 @@ export const MyAdmin: React.FC<Props> = ({ onLogout }) => {
 
   const logout = async () => {
     try {
-      await api.post("/api/admin/auth/logout");
+      await api.post("/api/web-admin/auth/logout");
     } catch {
       /* ignore */
     }
@@ -115,7 +115,7 @@ const AdminLogin: React.FC<{ onLoggedIn: (email: string, csrf: string) => void }
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.post<{ admin: { email: string }; csrf: string }>("/api/admin/auth/login", { email, password });
+      const r = await api.post<{ admin: { email: string }; csrf: string }>("/api/web-admin/auth/login", { email, password });
       onLoggedIn(r.data.admin.email, r.data.csrf);
     } catch (error) {
       setErr(apiErrorMessage(error));
@@ -222,7 +222,7 @@ const Overview: React.FC = () => {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<AdminStats>("/api/admin/stats")
+    api.get<AdminStats>("/api/web-admin/stats")
       .then((r) => setStats(r.data))
       .catch((e) => setErr(apiErrorMessage(e)));
   }, []);
@@ -277,7 +277,7 @@ const Withdrawals: React.FC = () => {
 
   const load = useCallback(async () => {
     try {
-      const r = await api.get<{ items: AdminWithdrawal[] }>("/api/admin/withdrawals");
+      const r = await api.get<{ items: AdminWithdrawal[] }>("/api/web-admin/withdrawals");
       setItems(r.data.items);
       setErr(null);
     } catch (e) {
@@ -293,7 +293,7 @@ const Withdrawals: React.FC = () => {
     setBusy(id);
     setMsg(null);
     try {
-      await api.post(`/api/admin/withdrawals/${id}/review`, { action, reason: rejReason });
+      await api.post(`/api/web-admin/withdrawals/${id}/review`, { action, reason: rejReason });
       setMsg(action === "approve" ? `#${id} approved.` : `#${id} rejected — escrow refunded.`);
       setRejectId(null);
       setReason("");
@@ -393,7 +393,7 @@ const UsersAdmin: React.FC = () => {
     setUser(null);
     setMsg(null);
     try {
-      const r = await api.get<{ user: AdminUser }>(`/api/admin/users/${id}`);
+      const r = await api.get<{ user: AdminUser }>(`/api/web-admin/users/${id}`);
       setUser(r.data.user);
     } catch {
       setNotFound(true);
@@ -404,7 +404,7 @@ const UsersAdmin: React.FC = () => {
 
   async function reload() {
     if (!user) return;
-    const r = await api.get<{ user: AdminUser }>(`/api/admin/users/${user.telegram_id}`);
+    const r = await api.get<{ user: AdminUser }>(`/api/web-admin/users/${user.telegram_id}`);
     setUser(r.data.user);
   }
 
@@ -418,7 +418,7 @@ const UsersAdmin: React.FC = () => {
     setBusy(true);
     setMsg(null);
     try {
-      await api.post(`/api/admin/users/${user.telegram_id}/adjust`, { amount: amt, reason: adjReason.trim() || "manual adjustment" });
+      await api.post(`/api/web-admin/users/${user.telegram_id}/adjust`, { amount: amt, reason: adjReason.trim() || "manual adjustment" });
       setMsg("Balance updated.");
       setAmount("");
       setAdjReason("");
@@ -435,7 +435,7 @@ const UsersAdmin: React.FC = () => {
     setBusy(true);
     setMsg(null);
     try {
-      await api.post(`/api/admin/users/${user.telegram_id}/flags`, { [flag]: value });
+      await api.post(`/api/web-admin/users/${user.telegram_id}/flags`, { [flag]: value });
       setMsg(`${flag} ${value ? "set" : "cleared"}.`);
       await reload();
     } catch (e) {

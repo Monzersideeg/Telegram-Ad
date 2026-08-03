@@ -26,7 +26,7 @@ api.interceptors.request.use((cfg) => {
   }
   const url = String(cfg.url || "");
   const method = String(cfg.method || "get").toUpperCase();
-  if (adminCsrfToken && url.startsWith("/api/admin") && !["GET", "HEAD", "OPTIONS"].includes(method)) {
+  if (adminCsrfToken && (url.startsWith("/api/admin") || url.startsWith("/api/web-admin")) && !["GET", "HEAD", "OPTIONS"].includes(method)) {
     (cfg.headers as Record<string, string>)["x-admin-csrf"] = adminCsrfToken;
   }
   return cfg;
