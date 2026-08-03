@@ -189,14 +189,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       <section className="flex flex-col items-center py-2 relative">
-        <div className="relative">
+        <div className="relative flex items-center justify-center py-3">
+          {!disabled && (
+            <>
+              <span className="absolute w-48 h-48 rounded-full bg-emerald-400/20 animate-ping pointer-events-none" />
+              <span className="absolute w-48 h-48 rounded-full border-[7px] border-emerald-300/45 pointer-events-none" />
+              <span className="absolute w-56 h-56 rounded-full border border-emerald-400/10 pointer-events-none" />
+            </>
+          )}
           <button
             id="watchAdBtn"
             onClick={onWatchAd}
             disabled={disabled}
             aria-label={adWatching ? "Loading ad" : adCooldownLeft > 0 ? `Locked ${adCooldownLeft}s` : "Watch ad"}
-            className={`relative w-44 h-44 rounded-[2rem] flex flex-col items-center justify-center gap-2 font-black transition-all duration-300 select-none shadow-2xl border border-white/20 active:scale-95 outline-none ${
-              disabled ? "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200" : "bg-gradient-to-br from-emerald-400 to-green-600 text-white hover:scale-[1.02] cursor-pointer shadow-emerald-500/25"
+            className={`relative z-10 w-44 h-44 sm:w-48 sm:h-48 rounded-full flex flex-col items-center justify-center gap-2 font-black transition-all duration-300 select-none shadow-2xl border-[6px] active:scale-95 outline-none ${
+              disabled ? "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200" : "bg-gradient-to-br from-emerald-400 via-green-500 to-emerald-600 text-white hover:scale-[1.02] cursor-pointer border-emerald-200/50 shadow-emerald-500/30"
             }`}
           >
             {adWatching ? (
@@ -211,7 +218,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </>
             ) : (
               <>
-                <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center mb-1">
+                <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center mb-1 shadow-inner">
                   <Play className="w-8 h-8 fill-current text-white translate-x-0.5" />
                 </div>
                 <span className="text-xl tracking-widest uppercase">WATCH AD</span>
