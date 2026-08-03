@@ -171,3 +171,40 @@ body {
 .text-\[8px\] { font-size: 10px; }
 .text-\[9px\] { font-size: 11px; }
 .text-\[10px\] { font-size: 11px; }
+
+/* AdsGram task card styling */
+.adsgram-task-card {
+  --adsgram-task-font-size: 14px;
+  --adsgram-task-icon-size: 42px;
+  --adsgram-task-icon-title-gap: 10px;
+  --adsgram-task-button-width: 68px;
+  --adsgram-task-icon-border-radius: 12px;
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 1rem;
+  background: #ffffff;
+  border: 1px solid rgb(226 232 240);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06);
+  color: #0f172a;
+  font-family: inherit;
+}
+.adsgram-task-reward {
+  display: inline-flex;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #059669;
+}
+.adsgram-task-button {
+  margin-left: 10px;
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: #10b981;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.adsgram-task-claim { background: #f59e0b; }
+.adsgram-task-done { background: #047857; }

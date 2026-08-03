@@ -21,6 +21,8 @@ function list(name: string): string[] {
   return v.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+const legacyAdsgramBlock = process.env.ADSGRAM_BLOCK_ID || "";
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: num("PORT", 8787),
@@ -32,26 +34,15 @@ export const env = {
   databaseUrl: required("DATABASE_URL"),
   redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
 
-  monetag: {
-    postbackSecret: required("MONETAG_POSTBACK_SECRET"),
-    zoneId: process.env.MONETAG_ZONE_ID || "",
-    // Postback query-param names. WE choose these in the Monetag postback URL
-    // template (Monetag fills the {macros} at send time). Keep in sync with the
-    // URL you configure in the Monetag dashboard:
-    //   /api/postback/monetag?secret=XXX&ymid={ymid}&event={event_type}
-    //     &value={reward_event_type}&price={estimated_price}&telegram_id={telegram_id}
-    paramSession: process.env.MONETAG_PARAM_SESSION || "ymid", // we pass sessionId as ymid
-    paramValueType: process.env.MONETAG_PARAM_VALUE || "value", // valued / non_valued / not_valued
-    paramPrice: process.env.MONETAG_PARAM_PRICE || "price", // estimated_price (USD)
-    paramTelegramId: process.env.MONETAG_PARAM_TELEGRAM_ID || "telegram_id",
-    paramEvent: process.env.MONETAG_PARAM_EVENT || "event", // impression / click
-  },
-
   adsgram: {
-    // AdsGram "block id" (e.g. "int-39617"). Empty => AdsGram disabled in the UI.
-    blockId: process.env.ADSGRAM_BLOCK_ID || "",
+    // Rewarded block is used by the large WATCH AD button.
+    rewardBlockId: process.env.ADSGRAM_REWARD_BLOCK_ID || legacyAdsgramBlock,
+    // Interstitial block should be in the int-xxx format and is shown on natural tab transitions.
+    interstitialBlockId: process.env.ADSGRAM_INTERSTITIAL_BLOCK_ID || legacyAdsgramBlock,
+    // Task block should be in the task-xxx format and renders as <adsgram-task> below the watch button.
+    taskBlockId: process.env.ADSGRAM_TASK_BLOCK_ID || "",
+    taskReward: num("ADSGRAM_TASK_REWARD", num("REWARD_PER_AD", 10)),
   },
-
 
   economy: {
     rewardPerAd: num("REWARD_PER_AD", 10),
@@ -61,23 +52,19 @@ export const env = {
     referralDailyCap: num("REFERRAL_DAILY_CAP", 500),
     minWithdrawal: num("MIN_WITHDRAWAL", 1000),
     coinsPerUsd: num("COINS_PER_USD", 1000),
-    // Game features (all rewards in coins)
     checkinReward: num("CHECKIN_REWARD", 25),
-    checkinStreakStep: num("CHECKIN_STREAK_STEP", 5), // + per streak day, capped at 7 days
+    checkinStreakStep: num("CHECKIN_STREAK_STEP", 5),
     missionJoinTelegram: num("MISSION_JOIN_TELEGRAM_REWARD", 100),
     missionWatch10: num("MISSION_WATCH10_REWARD", 150),
     missionInvite3: num("MISSION_INVITE3_REWARD", 300),
-    spinCooldownSeconds: num("SPIN_COOLDOWN_SECONDS", 86400), // 24h between spins
+    spinCooldownSeconds: num("SPIN_COOLDOWN_SECONDS", 86400),
   },
 
   adminTelegramIds: list("ADMIN_TELEGRAM_IDS").map((s) => Number(s)),
   adminSecret: process.env.ADMIN_SECRET || "change-me-admin-secret",
   adminWeb: {
     email: process.env.ADMIN_EMAIL || "",
-    // Preferred format: scrypt$<salt_hex>$<hash_hex>. Generate with:
-    //   node -e "const crypto=require('crypto');const p=process.argv[1];const s=crypto.randomBytes(16).toString('hex');crypto.scrypt(p,s,64,(e,k)=>console.log('scrypt$'+s+'$'+k.toString('hex')))" 'YOUR_PASSWORD'
     passwordHash: process.env.ADMIN_PASSWORD_HASH || "",
-    // Optional local/dev fallback only. Do not use plain ADMIN_PASSWORD in production.
     password: process.env.ADMIN_PASSWORD || "",
     sessionSecret: process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_SECRET || "change-me-admin-secret",
     cookieName: process.env.ADMIN_COOKIE_NAME || "acearn_admin",

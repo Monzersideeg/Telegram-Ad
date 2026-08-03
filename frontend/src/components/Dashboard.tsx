@@ -1,126 +1,161 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  TrendingUp, Users, Award, Eye, Coins, Play, Info, HelpCircle, 
-  ArrowRight, ExternalLink, Calendar, CheckSquare, Sparkles, 
-  Flame, Check, ChevronDown, ChevronUp, Lock, RefreshCw, Trophy,
-  Shield, Smartphone, Star, Gift
-} from 'lucide-react';
-import { UserStats, AdWatchLog, AdCampaign, AppConfig } from '../types';
-import { translations, FAQ_ITEMS_TR, TICKER_EVENTS_TR } from '../utils/translations';
-import { LuckySpin } from './LuckySpin';
+import React, { useEffect, useRef, useState } from "react";
+import { Check, Eye, Flame, Lock, Play, RefreshCw, Users, Zap } from "lucide-react";
+import type { AdWatchLog, AppConfig, UserStats } from "../types";
+import { translations } from "../utils/translations";
+import { LuckySpin } from "./LuckySpin";
 
 interface DashboardProps {
   stats: UserStats;
   watchHistory: AdWatchLog[];
   onNavigateTab: (tab: string) => void;
   telegramUser: { username: string; fullName: string; isPremium: boolean };
-  onWatchAd: (network: "monetag" | "adsgram") => Promise<void>;
+  onWatchAd: () => Promise<void>;
   rewardPerAdCoins: number;
   adWatching: boolean;
   adMsg: string | null;
   adCooldownLeft: number;
-  adsgramEnabled: boolean;
   maxAdsPerDay: number;
   streakWeek: { dow: string; done: boolean }[];
   streakDays: number;
-  joinedTelegram: boolean;
-  onJoinTelegram: () => void;
-  monetagConfig: { isEnabled: boolean };
+  taskBlockId: string;
+  taskRewardCoins: number;
+  onTaskReward: (blockId: string) => Promise<void>;
   appConfig: AppConfig;
-  language: 'en' | 'ru';
+  language: "en" | "ru";
   onSpin: () => Promise<{ ok: boolean; rewardCoins?: number; cooldownLeft?: number }>;
   spinCooldownLeft: number;
   feed: string[];
 }
 
+const AdsGramTaskCard: React.FC<{
+  blockId: string;
+  rewardCoins: number;
+  currencySymbol: string;
+  onReward: (blockId: string) => Promise<void>;
+}> = ({ blockId, rewardCoins, currencySymbol, onReward }) => {
+  const taskRef = useRef<HTMLElement | null>(null);
+  const [ready, setReady] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setReady(typeof customElements !== "undefined" && !!customElements.get("adsgram-task"));
+    const timer = setTimeout(() => setReady(typeof customElements !== "undefined" && !!customElements.get("adsgram-task")), 1200);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const task = taskRef.current;
+    if (!task) return;
+
+    const reward = async (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const rewardedBlockId = typeof detail === "string" ? detail : blockId;
+      setMsg("Task completed. Crediting reward…");
+      try {
+        await onReward(rewardedBlockId);
+        setMsg("Task reward credited.");
+      } catch {
+        setMsg("Task completed, but reward could not be credited. Try refreshing.");
+      }
+    };
+    const notFound = () => setMsg("No channel task is available right now.");
+    const tooLong = () => setMsg("Session is too long. Please restart the app to get tasks.");
+    const error = () => setMsg("Could not load task. Try again later.");
+
+    task.addEventListener("reward", reward);
+    task.addEventListener("onBannerNotFound", notFound);
+    task.addEventListener("onTooLongSession", tooLong);
+    task.addEventListener("onError", error);
+    return () => {
+      task.removeEventListener("reward", reward);
+      task.removeEventListener("onBannerNotFound", notFound);
+      task.removeEventListener("onTooLongSession", tooLong);
+      task.removeEventListener("onError", error);
+    };
+  }, [blockId, onReward]);
+
+  if (!blockId) {
+    return (
+      <div className="w-full max-w-sm bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-50 border border-emerald-100 text-emerald-600">
+          <Users className="w-5 h-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-bold text-slate-800 text-xs">Join Telegram channel</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">AdsGram task block is not configured yet.</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!ready) {
+    return (
+      <div className="w-full max-w-sm bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-center text-xs text-slate-400 font-semibold">
+        Loading channel task…
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full max-w-sm space-y-1.5">
+      {React.createElement(
+        "adsgram-task",
+        {
+          ref: taskRef as React.Ref<HTMLElement>,
+          "data-block-id": blockId,
+          "data-debug": "false",
+          "data-debug-console": "false",
+          className: "adsgram-task-card",
+        },
+        <span slot="reward" className="adsgram-task-reward">+{rewardCoins.toLocaleString()} {currencySymbol}</span>,
+        <div slot="button" className="adsgram-task-button">Join</div>,
+        <div slot="claim" className="adsgram-task-button adsgram-task-claim">Claim</div>,
+        <div slot="done" className="adsgram-task-button adsgram-task-done">Done</div>
+      )}
+      {msg && <p className="text-[10px] text-center text-slate-500 font-semibold">{msg}</p>}
+    </div>
+  );
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({
   stats,
   watchHistory,
   onNavigateTab,
-  telegramUser,
   onWatchAd,
   rewardPerAdCoins,
   adWatching,
   adMsg,
   adCooldownLeft,
-  adsgramEnabled,
   maxAdsPerDay,
   streakWeek,
   streakDays,
-  joinedTelegram,
-  onJoinTelegram,
-  monetagConfig,
+  taskBlockId,
+  taskRewardCoins,
+  onTaskReward,
   appConfig,
   language,
   onSpin,
   spinCooldownLeft,
   feed,
 }) => {
-  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
-  const [tickerIndex, setTickerIndex] = useState(0);
-
   const t = translations[language] || translations.en;
-  const FAQ_ITEMS = FAQ_ITEMS_TR[language] || FAQ_ITEMS_TR.en;
-  const tickerEvents = TICKER_EVENTS_TR[language] || TICKER_EVENTS_TR.en;
-  // Real activity feed from the server. Falls back to honest prompts when empty —
-  // never fabricated user events. (tickerEvents is kept only as a last resort.)
-  const feedItems =
-    feed && feed.length
-      ? feed
-      : language === 'en'
-      ? ['Be the first to earn ACN today 🚀', 'Watch a rewarded ad to keep your streak alive 🔥']
-      : ['Заработайте первые ACN сегодня 🚀', 'Смотрите рекламу, чтобы поддерживать серию 🔥'];
-  void tickerEvents;
-
-  // Floating particle system for ad rewards. Driven by balance increases (see the
-  // effect below) so the reward animation survives tab switches / remounts — the
-  // watch-in-progress / status / cooldown state itself now lives in App.
   const [floatingCoins, setFloatingCoins] = useState<{ id: number; amount: string }[]>([]);
   const prevBalRef = useRef<number | null>(null);
-
-  // Active Ad overlay play states
-  const [isPlayingAd, setIsPlayingAd] = useState(false);
-  const [activeCampaign, setActiveCampaign] = useState<AdCampaign | null>(null);
-  const [adTimeLeft, setAdTimeLeft] = useState(0);
-  const [adProgress, setAdProgress] = useState(100);
-  const [isAdCompleted, setIsAdCompleted] = useState(false);
-
-  // Anti-bot CAPTCHA validation
-  const [captchaAnswer, setCaptchaAnswer] = useState(0);
-  const [userCaptcha, setUserCaptcha] = useState('');
-  const [captchaError, setCaptchaError] = useState(false);
-
-  // Playable micro ad states
-  const [clickerCount, setClickerCount] = useState(0);
-  const [clickParticles, setClickParticles] = useState<{ id: number; x: number; y: number }[]>([]);
-  const [wheelRotation, setWheelRotation] = useState(0);
-  const [monetagStep, setMonetagStep] = useState(0);
-  const [tonWalletConnected, setTonWalletConnected] = useState(false);
+  const feedItems = feed && feed.length ? feed : ["Watch a rewarded ad to earn ACN 🚀", "Complete a channel task for bonus coins ✨"];
+  const [tickerIndex, setTickerIndex] = useState(0);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTickerIndex((prev) => (prev + 1) % feedItems.length);
-    }, 4500);
+    const timer = setInterval(() => setTickerIndex((i) => (i + 1) % feedItems.length), 4500);
     return () => clearInterval(timer);
   }, [feedItems.length]);
 
-  // Float a coin reward whenever the balance grows (a confirmed ad, check-in, mission,
-  // spin…). The first read just seeds the baseline so the initial /me load doesn't
-  // animate a fake "+balance" coin.
   useEffect(() => {
     if (prevBalRef.current === null) {
       prevBalRef.current = stats.balance;
       return;
     }
     if (stats.balance > prevBalRef.current) {
-      const deltaCoins = Math.round(
-        (stats.balance - prevBalRef.current) * (appConfig.usdToCoinRate || 1000)
-      );
+      const deltaCoins = Math.round((stats.balance - prevBalRef.current) * (appConfig.usdToCoinRate || 1000));
       const id = Date.now();
       setFloatingCoins((prev) => [...prev, { id, amount: `+${deltaCoins}` }]);
       setTimeout(() => setFloatingCoins((prev) => prev.filter((x) => x.id !== id)), 1600);
@@ -128,788 +163,139 @@ export const Dashboard: React.FC<DashboardProps> = ({
     prevBalRef.current = stats.balance;
   }, [stats.balance, appConfig.usdToCoinRate]);
 
-  // Active Ad countdown effect
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isPlayingAd && adTimeLeft > 0) {
-      interval = setInterval(() => {
-        setAdTimeLeft((prev) => {
-          const next = prev - 1;
-          const percentage = (next / (activeCampaign?.durationSeconds || 5)) * 100;
-          setAdProgress(percentage);
-
-          // Cycle slideshow for monetization card
-          if (activeCampaign?.id === 'camp_monetag_push') {
-            setMonetagStep((s) => (s + 1) % 4);
-          }
-          return next;
-        });
-      }, 1000);
-    } else if (isPlayingAd && adTimeLeft === 0) {
-      setIsPlayingAd(false);
-      setIsAdCompleted(true);
-      generateCaptcha();
-    }
-    return () => clearInterval(interval);
-  }, [isPlayingAd, adTimeLeft, activeCampaign]);
-
-  const generateCaptcha = () => {
-    const val1 = Math.floor(Math.random() * 7) + 2;
-    const val2 = Math.floor(Math.random() * 6) + 1;
-    setCaptchaAnswer(val1 + val2);
-    setUserCaptcha('');
-    setCaptchaError(false);
-  };
-
-  // Click on the massive circular "WATCH AD" trigger → opens a REAL Monetag ad.
-  // In-progress / status / cooldown state is owned by App (controlled via props), so
-  // it survives switching tabs — Dashboard no longer loses it on unmount/remount.
-  const handleWatchAdClick = async (network: "monetag" | "adsgram") => {
-    if (adCooldownLeft > 0 || adWatching) return;
-    await onWatchAd(network);
-  };
-
-  // Renders one network's watch button (Monetag / AdsGram share the same states).
-  const watchBtn = (network: "monetag" | "adsgram", label: string, gradient: string) => (
-    <button
-      id={`watchAdBtn-${network}`}
-      onClick={() => handleWatchAdClick(network)}
-      disabled={adCooldownLeft > 0 || adWatching}
-      aria-label={
-        adWatching
-          ? "Loading ad"
-          : adCooldownLeft > 0
-          ? `Locked ${adCooldownLeft}s`
-          : `Watch ${label} ad`
-      }
-      className={`relative w-28 h-28 sm:w-32 sm:h-32 rounded-3xl flex flex-col items-center justify-center gap-1 font-bold transition-all duration-300 select-none shadow-xl border border-white/20 active:scale-95 cursor-pointer outline-none ${
-        adCooldownLeft > 0 || adWatching
-          ? "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200"
-          : `bg-gradient-to-br ${gradient} text-white hover:scale-[1.02]`
-      }`}
-    >
-      {adWatching ? (
-        <>
-          <RefreshCw className="w-7 h-7 text-white mb-0.5 animate-spin" />
-          <span className="text-[9px] tracking-wider uppercase font-extrabold">
-            {language === "en" ? "Loading…" : "Загрузка…"}
-          </span>
-        </>
-      ) : adCooldownLeft > 0 ? (
-        <>
-          <Lock className="w-6 h-6 text-slate-300 mb-0.5" />
-          <span className="text-xs tracking-wider uppercase font-mono">{adCooldownLeft}s</span>
-        </>
-      ) : (
-        <>
-          <div className="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center mb-0.5">
-            <Play className="w-5 h-5 fill-current text-white translate-x-0.5" />
-          </div>
-          <span className="text-[11px] tracking-wider uppercase font-extrabold">{label}</span>
-          <span className="text-[9px] opacity-90 font-mono">
-            +{rewardPerAdCoins || Math.round(0.01 * appConfig.usdToCoinRate)} {appConfig.currencySymbol}
-          </span>
-        </>
-      )}
-    </button>
-  );
-
-  const handleCaptchaSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (parseInt(userCaptcha) === captchaAnswer) {
-      if (activeCampaign) {
-        const rewardValue = activeCampaign.rewardAmount;
-        
-        // Legacy simulated overlay is disabled; rewards are now server-verified via onWatchAd.
-        void rewardValue;
-
-        // Spawn a beautiful float particle
-        const coinAmount = Math.round((monetagConfig.isEnabled ? rewardValue * 1.5 : rewardValue) * appConfig.usdToCoinRate);
-        const particleId = Date.now();
-        setFloatingCoins((prev) => [...prev, { id: particleId, amount: `+${coinAmount}` }]);
-        
-        setTimeout(() => {
-          setFloatingCoins((prev) => prev.filter((item) => item.id !== particleId));
-        }, 1500);
-
-        // Reset overlay states
-        setActiveCampaign(null);
-        setIsAdCompleted(false);
-
-        // Cooldown is now owned by App after the verified ad flow settles.
-      }
-    } else {
-      setCaptchaError(true);
-    }
-  };
-
-  const handleInteractiveTap = (e: React.MouseEvent<HTMLButtonElement>) => {
-    setClickerCount((c) => c + 1);
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const newParticle = { id: Date.now(), x, y };
-    setClickParticles((p) => [...p, newParticle]);
-
-    setTimeout(() => {
-      setClickParticles((p) => p.filter((item) => item.id !== newParticle.id));
-    }, 800);
-  };
-
-  const handleSpinWheel = () => {
-    const extraRot = 720 + Math.floor(Math.random() * 360);
-    setWheelRotation((prev) => prev + extraRot);
-  };
-
-  // Convert USD metrics to coins using dynamic conversion rate
   const acnBalance = Math.round(stats.balance * appConfig.usdToCoinRate);
-  const cpmValue = stats.adsWatchedCount > 0 
-    ? ((stats.lifetimeEarnings - stats.referralEarnings) / stats.adsWatchedCount * appConfig.usdToCoinRate).toFixed(2)
-    : (0.0085 * appConfig.usdToCoinRate).toFixed(2);
-
-  // Withdrawal boundary thresholds
-  const minWithdrawal = appConfig.minWithdrawal;
-  const withdrawProgress = Math.min((stats.balance / minWithdrawal) * 100, 100);
-
-  const getCampaignIcon = (id: string) => {
-    switch (id) {
-      case 'camp_ton_quest':
-        return <Smartphone className="w-6 h-6 text-sky-400" />;
-      case 'camp_monetag_push':
-        return <Shield className="w-6 h-6 text-emerald-400" />;
-      case 'camp_crypto_clicker':
-        return <Flame className="w-6 h-6 text-amber-500 animate-pulse" />;
-      case 'camp_spin_win':
-        return <Gift className="w-6 h-6 text-purple-400" />;
-      case 'camp_durov_tribute':
-        return <Star className="w-6 h-6 text-yellow-400" fill="currentColor" />;
-      default:
-        return <Sparkles className="w-6 h-6 text-indigo-400" />;
-    }
-  };
+  const minWithdrawalCoins = Math.round(appConfig.minWithdrawal * appConfig.usdToCoinRate);
+  const progressPercent = Math.min((acnBalance / Math.max(1, minWithdrawalCoins)) * 100, 100);
+  const disabled = adWatching || adCooldownLeft > 0;
 
   return (
-    <div id="dashboard-view" className="scroll-area flex-1 overflow-y-auto pb-28 px-5 pt-3 space-y-4">
-      
-      {/* Live Social Proof Ticker Banner */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl px-3 py-1.5 shadow-sm overflow-hidden relative">
-        <div className="flex items-center space-x-2">
-          <span className="flex h-2 w-2 shrink-0 relative">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span className="text-[9px] font-bold text-emerald-600 tracking-wider uppercase shrink-0 font-mono">Live Feed:</span>
-          <div className="overflow-hidden relative w-full h-4">
-            <div 
-              className="absolute left-0 right-0 text-[10px] text-slate-600 font-bold truncate transition-all duration-500 ease-out flex items-center"
-              key={tickerIndex}
-            >
-              <span className="animate-in slide-in-from-bottom-2 duration-300">
-                {feedItems[tickerIndex % feedItems.length]}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 1. Total Balance Card (emerald gradient exactly matching the sketch) */}
-      <div className="relative rounded-3xl p-5 overflow-hidden text-white shadow-lg shadow-emerald-500/10 bg-gradient-to-br from-emerald-500 to-green-600">
-        {/* Dynamic circular highlights */}
-        <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full opacity-25 bg-white pointer-events-none"></div>
-        <div className="absolute -right-10 top-10 w-20 h-20 rounded-full opacity-15 bg-white pointer-events-none"></div>
-        
+    <main className="space-y-4 p-4 relative">
+      <div className="bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-600 rounded-[1.75rem] p-5 text-white shadow-lg shadow-emerald-500/20 relative overflow-hidden">
+        <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full opacity-25 bg-white pointer-events-none" />
         <div className="relative">
           <div className="flex items-center gap-1.5 text-xs opacity-90 mb-1 font-bold tracking-wide">
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-white/35 animate-pulse" />
             {t.totalBalance}
           </div>
-          
           <div className="flex items-baseline gap-2 mb-3">
-            <span className="text-4xl font-extrabold tracking-tight font-sans" id="balanceDisplay">
-              {acnBalance.toLocaleString('en-US')}
-            </span>
-            <span className="text-sm font-semibold opacity-90 font-mono">ACN</span>
+            <span className="text-4xl font-extrabold tracking-tight">{acnBalance.toLocaleString("en-US")}</span>
+            <span className="text-sm font-semibold opacity-90 font-mono">{appConfig.currencySymbol}</span>
           </div>
-
           <div className="flex items-center justify-between text-xs pt-1.5 border-t border-white/10">
-            <div>
-              <div className="opacity-90 font-semibold font-mono">≈ ${stats.balance.toFixed(2)} USD</div>
-            </div>
-            <div className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/20">
-              ↑ +{Math.round((stats.adsWatchedCount * 0.015) * 1000)} {t.today}
-            </div>
+            <div className="opacity-90 font-semibold font-mono">≈ ${stats.balance.toFixed(2)} USD</div>
+            <div className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/20">{stats.adsWatchedCount} views</div>
           </div>
         </div>
       </div>
 
-      {/* 2. WATCH AD big button section */}
-      <div className="flex flex-col items-center py-2 relative">
+      <section className="flex flex-col items-center py-2 relative">
         <div className="relative">
-          {/* Two watch buttons — one per ad network */}
-          <div className="flex items-stretch gap-3">
-            {watchBtn("monetag", "Monetag", "from-emerald-400 to-green-500")}
-            {adsgramEnabled && watchBtn("adsgram", "AdsGram", "from-sky-400 to-blue-500")}
-          </div>
+          <button
+            id="watchAdBtn"
+            onClick={onWatchAd}
+            disabled={disabled}
+            aria-label={adWatching ? "Loading ad" : adCooldownLeft > 0 ? `Locked ${adCooldownLeft}s` : "Watch ad"}
+            className={`relative w-44 h-44 rounded-[2rem] flex flex-col items-center justify-center gap-2 font-black transition-all duration-300 select-none shadow-2xl border border-white/20 active:scale-95 outline-none ${
+              disabled ? "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200" : "bg-gradient-to-br from-emerald-400 to-green-600 text-white hover:scale-[1.02] cursor-pointer shadow-emerald-500/25"
+            }`}
+          >
+            {adWatching ? (
+              <>
+                <RefreshCw className="w-10 h-10 text-white mb-1 animate-spin" />
+                <span className="text-xs tracking-wider uppercase">Loading…</span>
+              </>
+            ) : adCooldownLeft > 0 ? (
+              <>
+                <Lock className="w-9 h-9 text-slate-300 mb-1" />
+                <span className="text-xl tracking-wider uppercase font-mono">{adCooldownLeft}s</span>
+              </>
+            ) : (
+              <>
+                <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center mb-1">
+                  <Play className="w-8 h-8 fill-current text-white translate-x-0.5" />
+                </div>
+                <span className="text-xl tracking-widest uppercase">WATCH AD</span>
+                <span className="text-xs opacity-90 font-mono">+{rewardPerAdCoins || 10} {appConfig.currencySymbol}</span>
+              </>
+            )}
+          </button>
 
-          {/* Floating Coin Rewards Animation layer */}
-          <div id="coinFloat" className="absolute left-1/2 top-1/2 pointer-events-none w-0 h-0">
+          <div className="absolute left-1/2 top-1/2 pointer-events-none w-0 h-0">
             {floatingCoins.map((coin) => (
-              <div
-                key={coin.id}
-                className="coin-float absolute font-black text-xl text-emerald-500 font-mono tracking-tight shrink-0 flex items-center space-x-0.5"
-                style={{ transform: 'translateX(-50%)' }}
-              >
-                <span>🪙</span>
-                <span>{coin.amount}</span>
+              <div key={coin.id} className="coin-float absolute font-black text-xl text-emerald-500 font-mono tracking-tight shrink-0 flex items-center space-x-0.5" style={{ transform: "translateX(-50%)" }}>
+                <span>🪙</span><span>{coin.amount}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Cooldown labels row exactly matching reference sketch */}
         <div className="mt-4 flex items-center gap-4 text-xs text-slate-500 font-semibold">
           <div className="flex items-center gap-1.5">
-            <RefreshCw className={`w-3.5 h-3.5 ${adCooldownLeft > 0 ? 'animate-spin text-amber-500' : 'text-emerald-500'}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${adCooldownLeft > 0 ? "animate-spin text-amber-500" : "text-emerald-500"}`} />
             <span>{t.cooldown}:</span>
-            <span id="cooldown" className={`font-bold ${adCooldownLeft > 0 ? 'text-amber-500 font-mono' : 'text-emerald-500'}`}>
-              {adCooldownLeft > 0 ? `${adCooldownLeft}s` : t.ready}
-            </span>
+            <span className={`font-bold ${adCooldownLeft > 0 ? "text-amber-500 font-mono" : "text-emerald-500"}`}>{adCooldownLeft > 0 ? `${adCooldownLeft}s` : t.ready}</span>
           </div>
-          <div className="w-px h-3 bg-slate-300"></div>
-          <div>
-            {t.adsWatchedToday}: <span className="font-bold text-slate-800">{stats.adsWatchedCount}/{maxAdsPerDay || 20}</span>
-          </div>
+          <div className="w-px h-3 bg-slate-300" />
+          <div>{t.adsWatchedToday}: <span className="font-bold text-slate-800">{stats.adsWatchedCount}/{maxAdsPerDay || 20}</span></div>
         </div>
-        {adMsg && (
-          <p className="mt-2 text-[11px] text-center text-amber-600 font-semibold px-3 leading-snug">{adMsg}</p>
-        )}
-      </div>
+        {adMsg && <p className="mt-2 text-[11px] text-center text-amber-600 font-semibold px-3 leading-snug">{adMsg}</p>}
+      </section>
 
-      {/* 3. Dual Stats Grid (exactly matching sketch metadata counts) */}
+      <AdsGramTaskCard blockId={taskBlockId} rewardCoins={taskRewardCoins} currencySymbol={appConfig.currencySymbol} onReward={onTaskReward} />
+
       <div className="grid grid-cols-2 gap-3">
-        {/* Total Views Feature Card */}
-        <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4 hover:shadow transition">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-50 border border-emerald-100">
-              <Eye className="w-4.5 h-4.5 text-emerald-600" />
-            </div>
-            <span className="text-xs font-semibold text-slate-400">{t.totalViews}</span>
-          </div>
+        <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-1.5"><div className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-50 border border-emerald-100"><Eye className="w-4 h-4 text-emerald-600" /></div><span className="text-xs font-semibold text-slate-400">{t.totalViews}</span></div>
           <div className="text-xl font-extrabold text-slate-800">{stats.adsWatchedCount} {t.ads}</div>
-          <div className="text-[10px] font-bold text-emerald-500 mt-0.5 uppercase tracking-wide">
-            {t.verifiedS2SPlays}
-          </div>
+          <div className="text-[10px] font-bold text-emerald-500 mt-0.5 uppercase tracking-wide">server verified</div>
         </div>
-
-        {/* Referrals Feature Card */}
-        <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4 hover:shadow transition">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-50 border border-emerald-100">
-              <Users className="w-4.5 h-4.5 text-emerald-600" />
-            </div>
-            <span className="text-xs font-semibold text-slate-400">{t.referrals}</span>
-          </div>
+        <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-1.5"><div className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-50 border border-emerald-100"><Users className="w-4 h-4 text-emerald-600" /></div><span className="text-xs font-semibold text-slate-400">{t.referrals}</span></div>
           <div className="text-xl font-extrabold text-slate-800">{stats.referralCount} {t.friends}</div>
-          <div className="text-[10px] font-bold text-emerald-500 mt-0.5 uppercase tracking-wide">
-            +{Math.round(stats.referralEarnings * appConfig.usdToCoinRate)} {appConfig.currencySymbol} {t.earned}
-          </div>
+          <div className="text-[10px] font-bold text-emerald-500 mt-0.5 uppercase tracking-wide">+{Math.round(stats.referralEarnings * appConfig.usdToCoinRate)} {appConfig.currencySymbol}</div>
         </div>
       </div>
 
-      {/* Streak calendar */}
       <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4.5">
         <div className="flex items-center justify-between mb-3.5">
-          <div>
-            <div className="font-extrabold text-slate-800 text-sm">
-              {language === 'en' ? 'Daily Streak' : 'Ежедневная серия'}
-            </div>
-            <div className="text-[11px] text-slate-400">
-              {language === 'en' ? 'Watch ads to keep your multiplier alive' : 'Смотрите рекламу, чтобы сохранить буст'}
-            </div>
-          </div>
-          <span className="bg-amber-50 text-amber-800 border border-amber-100 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
-            🔥 {streakDays >= 3 ? (language === 'en' ? 'ON FIRE' : 'В ОГНЕ') : `${streakDays} ${language === 'en' ? 'DAY' : 'ДН'}`}
-          </span>
+          <div><div className="font-extrabold text-slate-800 text-sm">Daily Streak</div><div className="text-[11px] text-slate-400">Watch ads to keep your streak alive</div></div>
+          <span className="bg-amber-50 text-amber-800 border border-amber-100 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1"><Flame className="w-3 h-3" /> {streakDays} DAY</span>
         </div>
         <div className="flex items-center justify-between gap-1.5">
-          {(streakWeek && streakWeek.length ? streakWeek : Array.from({ length: 7 }, (_, i) => {
-            const d = new Date();
-            d.setUTCDate(d.getUTCDate() - (6 - i));
-            return { dow: ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getUTCDay()], done: false };
-          })).map((d, idx) => (
-            <div
-              key={idx}
-              title={d.done ? (language === 'en' ? 'Checked in' : 'Отметка') : (language === 'en' ? 'Missed' : 'Пропущено')}
-              className={`flex-1 aspect-square rounded-xl flex items-center justify-center text-[10px] font-extrabold transition-all duration-300 ${
-                d.done
-                  ? 'bg-emerald-500 text-white shadow shadow-emerald-500/10'
-                  : 'bg-slate-50 text-slate-400 border border-slate-200/40'
-              }`}
-            >
-              {d.dow}
-            </div>
+          {(streakWeek && streakWeek.length ? streakWeek : Array.from({ length: 7 }, (_, i) => ({ dow: ["S", "M", "T", "W", "T", "F", "S"][i], done: false }))).map((d, idx) => (
+            <div key={idx} className={`flex-1 aspect-square rounded-xl flex items-center justify-center text-[10px] font-extrabold ${d.done ? "bg-emerald-500 text-white shadow" : "bg-slate-50 text-slate-400 border border-slate-200/40"}`}>{d.dow}</div>
           ))}
         </div>
       </div>
 
-      {/* Lucky Spin Feature */}
       <LuckySpin onSpin={onSpin} initialCooldownLeft={spinCooldownLeft} />
 
-      {/* 5. Daily Missions List Preview */}
-      <div>
-        <div className="flex items-center justify-between mb-2.5 px-0.5">
-          <div className="font-extrabold text-sm text-slate-800">{t.todaysMissions}</div>
-          <button 
-            onClick={() => onNavigateTab('tasks')}
-            aria-label="See all missions"
-            className="text-xs font-bold text-emerald-600 hover:underline px-1.5 py-1 -my-1 rounded"
-          >
-            {t.seeAll}
-          </button>
-        </div>
-
-        <div className="space-y-2.5">
-          {/* Mission 1: Watch 10 ads */}
-          <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-3.5 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-50 border border-emerald-100 text-emerald-600">
-              <Play className="w-5 h-5 fill-current" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-bold text-slate-800 text-xs">{t.watch10Ads}</div>
-              <div className="flex items-center gap-2 mt-1.5">
-                <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                  <div 
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400" 
-                    style={{ width: `${Math.min((stats.adsWatchedCount / 10) * 100, 100)}%` }}
-                  ></div>
-                </div>
-                <span className="text-[9px] font-bold text-slate-400 font-mono">
-                  {stats.adsWatchedCount}/10
-                </span>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[8px] text-slate-400 uppercase font-bold tracking-wider">{t.reward}</div>
-              <div className="font-extrabold text-xs text-emerald-600">+{Math.round(appConfig.watch10AdsReward * appConfig.usdToCoinRate)} {appConfig.currencySymbol}</div>
-            </div>
-          </div>
-
-          {/* Mission 2: Join Telegram Channel */}
-          <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-3.5 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-50 border border-emerald-100 text-emerald-600">
-              <Users className="w-5 h-5" />
-            </div>
-            <div className="flex-1">
-              <div className="font-bold text-slate-800 text-xs">{t.joinTelegramChannel}</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">{t.instantOneTimeCoinBonus}</div>
-            </div>
-            {joinedTelegram ? (
-              <span className="text-[10px] font-bold text-slate-400 flex items-center">
-                <Check className="w-3.5 h-3.5 text-emerald-500 mr-0.5 stroke-[3]" /> {t.done}
-              </span>
-            ) : (
-              <button
-                onClick={onJoinTelegram}
-                className="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-extrabold text-[10px] px-3.5 py-1.5 rounded-lg transition"
-              >
-                +{Math.round(appConfig.joinTelegramReward * appConfig.usdToCoinRate)}
-              </button>
-            )}
-          </div>
-
-          {/* Mission 3: Invite 3 Friends */}
-          <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-3.5 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-50 border border-emerald-100 text-emerald-600">
-              <Gift className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-bold text-slate-800 text-xs">
-                {language === 'en' ? 'Invite 3 Friends' : 'Пригласите 3 друзей'}
-              </div>
-              <div className="flex items-center gap-2 mt-1.5">
-                <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                  <div 
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400" 
-                    style={{ width: `${Math.min((stats.referralCount / 3) * 100, 100)}%` }}
-                  ></div>
-                </div>
-                <span className="text-[9px] font-bold text-slate-400 font-mono">
-                  {stats.referralCount}/3
-                </span>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[8px] text-slate-400 uppercase font-bold tracking-wider">{t.reward}</div>
-              <div className="font-extrabold text-xs text-emerald-600">+300 {appConfig.currencySymbol}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 6. Referral banner widget */}
-      <div className="rounded-2xl p-4 bg-white border border-slate-200 shadow-sm relative overflow-hidden flex items-center gap-3">
-        <div className="absolute right-0 top-0 w-24 h-24 opacity-15 bg-radial from-emerald-500 to-transparent pointer-events-none"></div>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-emerald-50 border border-emerald-100 text-emerald-600 shrink-0">
-          <Users className="w-5.5 h-5.5" />
-        </div>
-        <div className="flex-1">
-          <div className="font-bold text-slate-800 text-sm">{t.earn10Forever}</div>
-          <div className="text-[11px] text-slate-400">{t.fromEveryAdView}</div>
-        </div>
-        <button 
-          onClick={() => onNavigateTab('friends')}
-          aria-label="Invite friends"
-          className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition shrink-0 shadow shadow-emerald-500/10"
-        >
-          {t.invite}
-        </button>
-      </div>
-
-      {/* 7. Recent Transactions (Activity log ledger) */}
-      <div>
-        <div className="flex items-center justify-between mb-2.5 px-0.5 text-slate-500 text-[10px] font-black uppercase tracking-wider font-mono">
-          <span>{t.recentActivity}</span>
-          <span>{t.history}</span>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm relative">
-          {watchHistory.length === 0 ? (
-            <div className="py-6 text-center text-slate-400 text-xs font-semibold">
-              {t.noTransactionsRecorded}
-            </div>
-          ) : (
-            <div className="relative border-l border-slate-100 ml-3.5 pl-5 space-y-4 py-1">
-              {watchHistory.slice(0, 4).map((log) => {
-                const isPayout = log.reward < 0;
-                return (
-                  <div key={log.id} className="relative flex items-center justify-between gap-3 text-left">
-                    {/* Timeline Node Point Dot */}
-                    <div className={`absolute -left-[27px] w-3 h-3 rounded-full border-2 border-white flex items-center justify-center shadow-sm ${
-                      isPayout ? 'bg-rose-500' : 'bg-emerald-500'
-                    }`} />
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-800 text-xs truncate">{log.title}</div>
-                      <div className="text-[9px] text-slate-400 font-medium mt-0.5 font-mono">
-                        {log.timestamp ? log.timestamp.split('T')[0] : 'Today'} · confirmed
-                      </div>
-                    </div>
-                    
-                    <div className={`font-extrabold text-xs sm:text-sm font-mono shrink-0 ${isPayout ? 'text-rose-600' : 'text-emerald-600'}`}>
-                      {isPayout ? '-' : '+'}{Math.abs(Math.round(log.reward * appConfig.usdToCoinRate))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 8. Withdrawal Progress CTA Card */}
       <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4 space-y-2.5">
-        <div className="flex items-center justify-between text-xs font-bold text-slate-500">
-          <span>{t.progressToWithdrawal}</span>
-          <span className="text-slate-800">{acnBalance} / {Math.round(minWithdrawal * appConfig.usdToCoinRate)} {appConfig.currencySymbol}</span>
-        </div>
-
-        <div className="h-2 rounded-full bg-slate-100 relative overflow-hidden border border-slate-200/40">
-          <div 
-            className="progress-bar h-full rounded-full relative overflow-hidden" 
-            style={{ width: `${withdrawProgress}%` }}
-          >
-            <div className="absolute inset-0 shine"></div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between pt-1">
-          <div className="text-[11px] text-slate-400">
-            {stats.balance >= minWithdrawal 
-              ? t.cashoutThresholdReached
-              : t.needMore.replace('{amount}', Math.round((minWithdrawal - stats.balance) * appConfig.usdToCoinRate).toString()).replace('{currency}', appConfig.currencySymbol)
-            }
-          </div>
-          <button 
-            onClick={() => onNavigateTab('wallet')}
-            disabled={stats.balance < minWithdrawal}
-            aria-label="Go to withdrawal"
-            className={`text-xs font-black px-3.5 py-2.5 rounded-lg transition-all ${
-              stats.balance >= minWithdrawal
-                ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow shadow-emerald-500/10 cursor-pointer'
-                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-            }`}
-          >
-            {t.withdraw}
-          </button>
-        </div>
+        <div className="flex items-center justify-between text-xs font-bold text-slate-500"><span>Progress to withdrawal</span><span className="text-slate-800">{acnBalance} / {minWithdrawalCoins} {appConfig.currencySymbol}</span></div>
+        <div className="h-2 rounded-full bg-slate-100 relative overflow-hidden border border-slate-200/40"><div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400" style={{ width: `${progressPercent}%` }} /></div>
+        <button onClick={() => onNavigateTab("wallet")} className="w-full py-2.5 rounded-xl bg-slate-900 text-white text-xs font-black hover:bg-slate-800 transition">Open Wallet</button>
       </div>
 
-      {/* FAQs Section */}
-      <div className="space-y-3">
-        <div className="flex items-center space-x-2 px-1">
-          <HelpCircle className="w-4 h-4 text-emerald-500" />
-          <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider font-mono">{t.frequentlyAskedQuestions}</h3>
-        </div>
-
-        <div className="space-y-2.5">
-          {FAQ_ITEMS.map((faq, index) => {
-            const isOpen = openFaqIndex === index;
-            return (
-              <div 
-                key={index} 
-                id={`faq-item-${index}`}
-                className={`bg-white border rounded-2xl overflow-hidden transition-all duration-300 shadow-sm ${
-                  isOpen ? 'border-emerald-500/30 ring-1 ring-emerald-500/5' : 'border-slate-200'
-                }`}
-              >
-                <button
-                  onClick={() => setOpenFaqIndex(isOpen ? null : index)}
-                  aria-expanded={isOpen}
-                  aria-label={`FAQ: ${faq.question}`}
-                  className="w-full text-left p-4 flex items-start justify-between gap-3 hover:bg-slate-50/50 transition cursor-pointer"
-                >
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border ${faq.colorClass}`}>
-                      {faq.category}
-                    </span>
-                    <h4 className="font-bold text-slate-800 text-xs leading-snug">
-                      {faq.question}
-                    </h4>
-                  </div>
-                  <div className="shrink-0 mt-0.5">
-                    {isOpen ? (
-                      <div className="w-5 h-5 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      </div>
-                    ) : (
-                      <div className="w-5 h-5 rounded-full bg-slate-50 flex items-center justify-center text-slate-400">
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      </div>
-                    )}
-                  </div>
-                </button>
-
-                <div 
-                  className={`transition-all duration-300 ease-in-out ${
-                    isOpen ? 'max-h-[200px] opacity-100 border-t border-slate-100' : 'max-h-0 opacity-0 pointer-events-none'
-                  } overflow-hidden`}
-                >
-                  <p className="p-4 text-[11px] text-slate-500 leading-relaxed font-normal">
-                    {faq.answer}
-                  </p>
+      <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4">
+        <div className="flex items-center gap-2 mb-3"><Zap className="w-4 h-4 text-emerald-500" /><div className="font-extrabold text-sm text-slate-800">Activity</div></div>
+        <div className="mb-3 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 p-2.5 text-[11px] font-bold text-center">{feedItems[tickerIndex]}</div>
+        {watchHistory.length === 0 ? (
+          <div className="py-6 text-center text-slate-400 text-xs font-semibold">No transactions recorded</div>
+        ) : (
+          <div className="relative border-l border-slate-100 ml-3.5 pl-5 space-y-4 py-1">
+            {watchHistory.slice(0, 4).map((log) => {
+              const isPayout = log.reward < 0;
+              return (
+                <div key={log.id} className="relative flex items-center justify-between gap-3 text-left">
+                  <div className={`absolute -left-[27px] w-3 h-3 rounded-full border-2 border-white shadow-sm ${isPayout ? "bg-rose-500" : "bg-emerald-500"}`} />
+                  <div className="flex-1 min-w-0"><div className="font-bold text-slate-800 text-xs truncate">{log.title}</div><div className="text-[9px] text-slate-400 font-medium mt-0.5 font-mono">{log.timestamp ? log.timestamp.split("T")[0] : "Today"}</div></div>
+                  <div className={`font-extrabold text-xs sm:text-sm font-mono shrink-0 ${isPayout ? "text-rose-600" : "text-emerald-600"}`}>{isPayout ? "-" : "+"}{Math.abs(Math.round(log.reward * appConfig.usdToCoinRate))}</div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ========================================================= */}
-      {/* ============ LIVE HIGH-FIDELITY AD OVERLAY ============== */}
-      {/* ========================================================= */}
-      {/* [DISABLED] old client-side fake ad overlay — replaced by the real Monetag
-          interstitial opened from App.handleWatchAd. Kept as dead code (never renders). */}
-      {false && activeCampaign && (isPlayingAd || isAdCompleted) && (
-        <div className="ad-overlay fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-[9999] flex items-center justify-center p-5 animate-in fade-in duration-200">
-          
-          {/* Main Ad Box */}
-          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 w-full max-w-xs space-y-4 relative overflow-hidden shadow-2xl">
-            {/* Top countdown progress bar */}
-            {isPlayingAd && (
-              <div 
-                className="absolute top-0 left-0 h-1 bg-gradient-to-r from-emerald-400 to-green-500 transition-all duration-1000" 
-                style={{ width: `${adProgress}%` }}
-              />
-            )}
-
-            <div className="flex justify-between items-start">
-              <div>
-                <span className="text-[8px] uppercase font-mono font-bold tracking-widest text-emerald-400">
-                  {t.rewardedTask} • {activeCampaign.type.toUpperCase()}
-                </span>
-                <h3 className="text-xs font-bold text-white mt-0.5 leading-tight">{activeCampaign.title}</h3>
-              </div>
-              <div className="bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-black text-emerald-400 font-mono">
-                +{Math.round((monetagConfig.isEnabled ? activeCampaign.rewardAmount * 1.5 : activeCampaign.rewardAmount) * 1000)} ACN
-              </div>
-            </div>
-
-            {/* Simulated Live Video / Playable Canvas Screen */}
-            <div className="bg-slate-950 aspect-[16/10] rounded-2xl border border-white/5 flex flex-col items-center justify-center relative overflow-hidden p-3 select-none">
-              
-              {/* Campaign Playing Content */}
-              {isPlayingAd && (
-                <div className="w-full h-full flex flex-col justify-between relative z-10 text-center">
-                  
-                  {/* 1. TON Wallet Interactive */}
-                  {activeCampaign.id === 'camp_ton_quest' && (
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-2">
-                      <div className="relative">
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center border border-sky-300 shadow animate-bounce">
-                          <Smartphone className="w-6 h-6 text-white" />
-                        </div>
-                        <span className="absolute -bottom-1 -right-1 bg-sky-400 text-slate-900 text-[8px] font-black px-1 rounded-full border border-sky-100">TON</span>
-                      </div>
-                      <p className="text-[9px] text-slate-300 max-w-[200px] leading-tight">Link your Web3 wallet inside the sandbox!</p>
-                      <button 
-                        onClick={() => setTonWalletConnected(true)}
-                        className={`px-3 py-1 rounded-lg text-[9px] font-extrabold uppercase tracking-wider transition ${
-                          tonWalletConnected 
-                            ? 'bg-emerald-500 text-slate-950' 
-                            : 'bg-sky-500 hover:bg-sky-400 text-white animate-pulse'
-                        }`}
-                      >
-                        {tonWalletConnected ? '✓ Linked' : '🔗 Link TON Wallet'}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* 2. Monetag pushzone info */}
-                  {activeCampaign.id === 'camp_monetag_push' && (
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-1.5">
-                      <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 text-emerald-400">
-                        <Shield className="w-5.5 h-5.5 animate-pulse" />
-                      </div>
-                      <div className="h-10 flex items-center justify-center">
-                        {monetagStep === 0 && <span className="text-[10px] text-slate-300">High fill-rate direct redirect active.</span>}
-                        {monetagStep === 1 && <span className="text-[10px] text-slate-300">Clean non-intrusive elements loaded.</span>}
-                        {monetagStep === 2 && <span className="text-[10px] text-slate-300">Easy zone ID replacement script.</span>}
-                        {monetagStep === 3 && <span className="text-[10px] text-emerald-400 font-extrabold">CPM boost enabled: +50%!</span>}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 3. Tapper Mini Game playable */}
-                  {activeCampaign.id === 'camp_crypto_clicker' && (
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-1.5 relative">
-                      <div className="absolute top-0 right-0 bg-white/5 border border-white/5 px-1.5 py-0.2 rounded text-[8px] font-mono text-amber-400">
-                        Coins Tapped: {clickerCount}
-                      </div>
-                      <p className="text-[8px] text-slate-400">Tap coin to test advertiser click postbacks!</p>
-                      <button 
-                        onClick={handleInteractiveTap}
-                        className="w-14 h-14 bg-gradient-to-tr from-amber-400 to-yellow-500 rounded-full border-2 border-amber-300 flex items-center justify-center text-xl active:scale-90 transition-transform relative outline-none focus:outline-none cursor-pointer"
-                      >
-                        🪙
-                        {clickParticles.map((p) => (
-                          <span 
-                            key={p.id}
-                            className="absolute text-[10px] font-black font-mono text-amber-300 pointer-events-none animate-out fade-out slide-out-to-top-6 duration-500"
-                            style={{ left: p.x - 5, top: p.y - 12 }}
-                          >
-                            +1
-                          </span>
-                        ))}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* 4. Spinner playable */}
-                  {activeCampaign.id === 'camp_spin_win' && (
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-1.5">
-                      <p className="text-[8px] text-slate-400 leading-none">{t.spinTheWheel}</p>
-                      <div className="relative">
-                        <div 
-                          className="w-12 h-12 rounded-full border-2 border-purple-500 bg-slate-900 flex items-center justify-center font-bold text-[8px] shadow transition-transform duration-[3000ms] ease-out"
-                          style={{ transform: `rotate(${wheelRotation}deg)` }}
-                        >
-                          ⭐
-                        </div>
-                        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2 h-2 bg-red-500 rotate-45" />
-                      </div>
-                      <button 
-                        onClick={handleSpinWheel}
-                        className="px-2.5 py-0.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-[8px] font-black uppercase tracking-wider transition"
-                      >
-                        {t.spin}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* 5. Stars tribute */}
-                  {activeCampaign.id === 'camp_durov_tribute' && (
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-2">
-                      <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-yellow-500/30 flex items-center justify-center shadow animate-pulse">
-                        <Star className="w-6 h-6 text-yellow-400 fill-current" />
-                      </div>
-                      <p className="text-[9px] text-slate-300 max-w-[190px] leading-tight">{t.decentralizedStarsSystem}</p>
-                    </div>
-                  )}
-
-                  {/* Progress bar info */}
-                  <div className="flex justify-between items-center text-[8px] text-slate-500 font-mono border-t border-white/5 pt-1">
-                    <span>Publisher: {activeCampaign.advertiserName}</span>
-                    <div className="flex items-center space-x-1 text-emerald-400 font-bold">
-                      <span className="w-1 h-1 bg-emerald-500 rounded-full animate-ping" />
-                      <span>{adTimeLeft}s</span>
-                    </div>
-                  </div>
-
-                </div>
-              )}
-
-              {/* Math CAPTCHA verification to claim coins */}
-              {isAdCompleted && (
-                <div className="text-center w-full space-y-3 animate-in zoom-in-95 duration-200">
-                  <div className="w-10 h-10 bg-emerald-500/15 rounded-full flex items-center justify-center mx-auto border border-emerald-500/30">
-                    <Check className="w-5.5 h-5.5 text-emerald-400 stroke-[3]" />
-                  </div>
-                  
-                  <div>
-                    <h4 className="text-xs font-bold text-white">{t.adFinished}!</h4>
-                    <p className="text-[9px] text-slate-400 leading-tight">{t.completeSimpleCalculation}</p>
-                  </div>
-
-                  <form onSubmit={handleCaptchaSubmit} className="space-y-2">
-                    <div className="flex items-center justify-center space-x-2">
-                      <span className="text-[10px] font-bold text-slate-300 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/5 font-mono">
-                        {captchaAnswer - 3} + 3 = ?
-                      </span>
-                      <input
-                        type="number"
-                        value={userCaptcha}
-                        onChange={(e) => setUserCaptcha(e.target.value)}
-                        placeholder="Ans"
-                        className="w-16 text-center bg-slate-900 border border-white/10 rounded-xl px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-400 font-mono font-bold"
-                        required
-                        autoFocus
-                      />
-                    </div>
-                    {captchaError && (
-                      <p className="text-[8px] text-rose-400 font-bold">{t.incorrectCalculation}</p>
-                    )}
-                    <button
-                      type="submit"
-                      className="w-full bg-gradient-to-r from-emerald-400 to-green-500 text-slate-950 font-black py-2 rounded-xl text-[10px] uppercase tracking-wider hover:opacity-90 active:scale-95 shadow cursor-pointer"
-                    >
-                      {t.verifyAndClaim}
-                    </button>
-                  </form>
-                </div>
-              )}
-
-            </div>
-
-            {/* Cancel/Skip trigger */}
-            <div className="flex justify-end pt-1">
-              <button
-                onClick={() => {
-                  setActiveCampaign(null);
-                  setIsPlayingAd(false);
-                  setIsAdCompleted(false);
-                }}
-                className="text-slate-500 hover:text-slate-300 text-[10px] font-bold py-1 px-3 hover:bg-white/5 rounded-lg transition"
-              >
-                {t.skipTask}
-              </button>
-            </div>
+              );
+            })}
           </div>
-
-        </div>
-      )}
-
-    </div>
+        )}
+      </div>
+    </main>
   );
 };

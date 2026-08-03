@@ -19,14 +19,6 @@ export interface UserStats {
   totalPayouts: number;
 }
 
-export interface MonetagConfig {
-  smartlinkUrl: string;
-  popunderZoneId: string;
-  inPagePushZoneId: string;
-  interstitialZoneId: string;
-  isEnabled: boolean;
-}
-
 export interface PayoutRequest {
   id: string;
   amount: number;

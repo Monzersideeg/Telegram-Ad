@@ -8,11 +8,11 @@ export const translations = {
     // Header
     welcomeBack: "Welcome back",
     pro: "PRO",
-    cpmAdConsole: "Monetag Ad Console",
+    cpmAdConsole: "AdsGram Ad Console",
     directCpmMonetization: "Direct CPM Monetization",
-    replaceSimulatedCampaigns: "Replace simulated campaigns with your real Monetag publisher script zone keys to monetize live views.",
+    replaceSimulatedCampaigns: "Configure AdsGram block IDs in the backend environment to monetize live views.",
     useRealPlacements: "Use Real Placements",
-    injectsRealMonetagZoneAds: "Injects real Monetag Zone ads",
+    loadsRealAdsGramAds: "Loads real AdsGram ads",
     smartlinkDirectUrl: "Smartlink Direct URL",
     popunderZoneId: "Popunder Zone ID",
     interstitialId: "Interstitial ID",
@@ -159,11 +159,11 @@ export const translations = {
     // Header
     welcomeBack: "С возвращением",
     pro: "ПРО",
-    cpmAdConsole: "Панель рекламы Monetag",
+    cpmAdConsole: "Панель рекламы AdsGram",
     directCpmMonetization: "Прямая CPM монетизация",
-    replaceSimulatedCampaigns: "Замените симулированные кампании на ваши реальные ключи зон Monetag для монетизации реальных просмотров.",
+    replaceSimulatedCampaigns: "Замените симулированные кампании на ваши реальные ключи зон AdsGram для монетизации реальных просмотров.",
     useRealPlacements: "Использовать реальные размещения",
-    injectsRealMonetagZoneAds: "Внедряет реальные рекламные зоны Monetag",
+    loadsRealAdsGramAds: "Внедряет реальные рекламные зоны AdsGram",
     smartlinkDirectUrl: "Прямая ссылка Smartlink",
     popunderZoneId: "ID зоны Popunder",
     interstitialId: "ID Interstitial",
@@ -330,8 +330,8 @@ export const FAQ_ITEMS_TR = {
     },
     {
       category: 'Integration',
-      question: 'Can I connect my own Monetag publisher credentials?',
-      answer: 'Yes! By clicking the developer gear icon in the header, you can integrate your custom Monetag zone ID. This routes 100% of the live ad yield directly to your publisher statistics and awards an extra 1.5x speed multiplier bonus on your earnings!',
+      question: 'Can I configure AdsGram block IDs?',
+      answer: 'AdsGram block IDs are configured securely in the backend environment. Rewards are credited only after verified AdsGram completion.',
       colorClass: 'text-amber-500 bg-amber-50 border-amber-100',
     },
     {
@@ -362,8 +362,8 @@ export const FAQ_ITEMS_TR = {
     },
     {
       category: 'Интеграция',
-      question: 'Могу ли я подключить свои собственные учетные данные издателя Monetag?',
-      answer: 'Да! Нажав на иконку шестеренки разработчика в заголовке, вы можете интегрировать свой собственный ID зоны Monetag. Это направляет 100% реальной доходности рекламы непосредственно в вашу статистику издателя и дает дополнительный бонус в виде умножения заработка в 1,5 раза!',
+      question: 'Можно ли настроить блоки AdsGram?',
+      answer: 'Блоки AdsGram настраиваются в окружении backend. Награды начисляются только после подтвержденного завершения AdsGram.',
       colorClass: 'text-amber-500 bg-amber-50 border-amber-100',
     },
     {
@@ -382,7 +382,7 @@ export const TICKER_EVENTS_TR = {
     "🚀 User @crypto_miner just unlocked Golden Multiplier for referring 5 friends!",
     "💰 @samantha_sparks just claimed her Day 7 Grand Check-in Bonus of $0.50!",
     "⚡ @durov_fans completed 45 ad tasks this week!",
-    "💎 Multiplier Active: Connect your own Monetag Zone ID for +1.5x boost!"
+    "💎 AdsGram active: watch verified ads for ACN rewards!"
   ],
   ru: [
     "🎉 @whale_ton успешно вывел 14.8 TON ($108.70)!",
@@ -390,6 +390,6 @@ export const TICKER_EVENTS_TR = {
     "🚀 Пользователь @crypto_miner разблокировал Золотой Мультипликатор за привлечение 5 друзей!",
     "💰 @samantha_sparks получил Большой Бонус 7-го дня в размере $0.50!",
     "⚡ @durov_fans выполнил 45 рекламных заданий на этой неделе!",
-    "💎 Мультипликатор активен: Подключите свой собственный Monetag Zone ID для буста +1.5x!"
+    "💎 AdsGram активен: смотрите проверенную рекламу и получайте ACN!"
   ]
 };

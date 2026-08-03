@@ -8,7 +8,7 @@ import { query } from "../db/pool.js";
 import type { AuthedRequest } from "../types.js";
 
 // DEVELOPMENT ONLY. Lets you exercise the full watch -> postback -> credit loop
-// without a live Monetag zone. This router is mounted ONLY when NODE_ENV=development.
+// without a live ad block. This router is mounted ONLY when NODE_ENV=development.
 // It still goes through the real confirmAdView() path (idempotency, ledger, referral),
 // so it mirrors production behavior. Never enable in production.
 export const devRouter = Router();

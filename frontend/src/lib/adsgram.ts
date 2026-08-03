@@ -1,85 +1,157 @@
-// AdsGram rewarded-interstitial integration.
-//
-// Unlike Monetag, AdsGram verifies the view inside its own SDK: AdController.show()
-// resolves ONLY on a legitimate completed watch and rejects on error/skip. AdsGram's
-// public docs expose no signed per-view S2S postback for publishers (only an optional,
-// unsigned, telegramId-based GET aimed at very large publishers), so we credit on the
-// SDK-verified resolved promise via POST /api/ads/complete — still gated server-side by
-// the watch session, rate-limits, once-per-session idempotency and a min-watch-time.
+import type React from "react";
 
-interface ShowResult {
-  done?: boolean;
-  error?: boolean;
-  description?: string;
-  state?: string;
-}
-interface AdController {
-  show: () => Promise<ShowResult>;
-}
-declare global {
-  interface Window {
-    Adsgram?: { init: (opts: { blockId: string }) => AdController };
-  }
+// AdsGram integration for Telegram Mini App.
+// Formats used:
+// - Rewarded: main WATCH AD button; coins credited only after SDK resolves and backend settles session.
+// - Interstitial: natural app transitions; no user reward.
+// - Task: <adsgram-task> web component rendered in Dashboard.
+
+export type AdsgramBannerType = "RewardedVideo" | "FullscreenMedia";
+
+export interface ShowPromiseResult {
+  done: boolean;
+  description: string;
+  state: "load" | "render" | "playing" | "destroy";
+  error: boolean;
 }
 
 export interface AdsOutcome {
   completed: boolean;
   error?: string;
+  raw?: ShowPromiseResult;
 }
 
-let scriptP: Promise<void> | null = null;
-let controller: AdController | null = null;
-let initedBlock: string | null = null;
+interface AdController {
+  show: () => Promise<ShowPromiseResult>;
+  addEventListener?: (event: string, handler: () => void) => void;
+  removeEventListener?: (event: string, handler: () => void) => void;
+  destroy?: () => void;
+}
 
-function loadScript(): Promise<void> {
-  if (scriptP) return scriptP;
+declare global {
+  interface Window {
+    Adsgram?: {
+      init: (opts: {
+        blockId: string;
+        debug?: boolean;
+        debugConsole?: boolean;
+        debugBannerType?: AdsgramBannerType;
+      }) => AdController;
+    };
+  }
+
+  namespace JSX {
+    interface IntrinsicElements {
+      "adsgram-task": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        "data-block-id"?: string;
+        "data-debug"?: string | boolean;
+        "data-debug-console"?: string | boolean;
+      };
+    }
+  }
+}
+
+let scriptPromise: Promise<void> | null = null;
+const controllers = new Map<string, AdController>();
+
+export function loadAdsGramScript(): Promise<void> {
+  if (scriptPromise) return scriptPromise;
   if (typeof document === "undefined") return Promise.reject(new Error("no document"));
-  scriptP = new Promise<void>((resolve, reject) => {
-    if (window.Adsgram) {
+
+  scriptPromise = new Promise<void>((resolve, reject) => {
+    if (window.Adsgram && customElements.get("adsgram-task")) {
       resolve();
       return;
     }
-    const s = document.createElement("script");
-    s.src = "https://sad.adsgram.ai/js/sad.min.js";
-    s.async = true;
-    s.onload = () => resolve();
-    s.onerror = () => {
-      scriptP = null;
+
+    const existing = document.querySelector<HTMLScriptElement>('script[src="https://sad.adsgram.ai/js/sad.min.js"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("adsgram script load failed")), { once: true });
+      // If AdsGram global already appeared after an earlier load, resolve immediately.
+      if (window.Adsgram) resolve();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://sad.adsgram.ai/js/sad.min.js";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      scriptPromise = null;
       reject(new Error("adsgram script load failed"));
     };
-    document.head.appendChild(s);
+    document.head.appendChild(script);
   });
-  return scriptP;
+
+  return scriptPromise;
 }
 
-/** Load the SDK and init with the block id. Call on mount so show() is ready at tap time. */
-export async function preloadAdsGram(blockId: string): Promise<boolean> {
-  if (!blockId) return false;
+function controllerKey(blockId: string, debugBannerType?: AdsgramBannerType): string {
+  return `${blockId}:${debugBannerType || "live"}`;
+}
+
+export async function getAdsGramController(
+  blockId: string,
+  debugBannerType?: AdsgramBannerType
+): Promise<AdController | null> {
+  if (!blockId) return null;
+  await loadAdsGramScript();
+  if (!window.Adsgram) return null;
+
+  const key = controllerKey(blockId, debugBannerType);
+  const cached = controllers.get(key);
+  if (cached) return cached;
+
+  const controller = window.Adsgram.init({
+    blockId,
+    debug: false,
+    debugConsole: false,
+    debugBannerType,
+  });
+  controllers.set(key, controller);
+  return controller;
+}
+
+export async function preloadAdsGram(blockIds: string[] | string): Promise<boolean> {
+  const ids = Array.isArray(blockIds) ? blockIds : [blockIds];
   try {
-    await loadScript();
-    if (!window.Adsgram) return false;
-    if (initedBlock !== blockId) {
-      controller = window.Adsgram.init({ blockId });
-      initedBlock = blockId;
-    }
+    await loadAdsGramScript();
+    await Promise.all(ids.filter(Boolean).map((id) => getAdsGramController(id)));
     return true;
   } catch {
     return false;
   }
 }
 
-/** Show the rewarded ad. MUST be called synchronously inside the tap handler (gesture). */
-export function showAdsGramAd(): Promise<AdsOutcome> {
-  if (!controller) return Promise.resolve({ completed: false, error: "adsgram not ready" });
-  try {
-    return controller.show().then(
-      (r): AdsOutcome => ({ completed: r?.done !== false && r?.error !== true, error: r?.description }),
-      (r): AdsOutcome => ({ completed: false, error: (r && r.description) || "adsgram error" })
-    );
-  } catch (e) {
-    return Promise.resolve({
+export function showAdsGramAd(
+  blockId: string,
+  debugBannerType?: AdsgramBannerType
+): Promise<AdsOutcome> {
+  if (!blockId) return Promise.resolve({ completed: false, error: "adsgram block id missing" });
+
+  return getAdsGramController(blockId, debugBannerType)
+    .then((controller) => {
+      if (!controller) return { completed: false, error: "adsgram not ready" };
+      return controller.show().then(
+        (result): AdsOutcome => ({ completed: result?.done !== false && result?.error !== true, raw: result }),
+        (result: ShowPromiseResult): AdsOutcome => ({
+          completed: false,
+          error: result?.description || "ad skipped or unavailable",
+          raw: result,
+        })
+      );
+    })
+    .catch((err) => ({
       completed: false,
-      error: e instanceof Error ? e.message : "adsgram throw",
-    });
-  }
+      error: err instanceof Error ? err.message : "adsgram error",
+    }));
+}
+
+export function showAdsGramReward(blockId: string): Promise<AdsOutcome> {
+  return showAdsGramAd(blockId, "RewardedVideo");
+}
+
+export function showAdsGramInterstitial(blockId: string): Promise<AdsOutcome> {
+  return showAdsGramAd(blockId, "FullscreenMedia");
 }

@@ -60,16 +60,10 @@ export type ConfirmResult =
  * Settle an ad view from a verified S2S postback. This is the ONLY place ad coins
  * are minted.
  *
- * Monetag fires postbacks for both paid ("valued") and unpaid ("non_valued" /
- * "not_valued") events. We credit the user ONLY for valued events — paying out for
- * unpaid traffic would lose money. The coin amount is the configured REWARD_PER_AD
- * (we never trust network-supplied amounts). Idempotent and safe against postback
- * ordering; the ad_view row is locked (FOR UPDATE) so concurrent postbacks
- * serialize and a late "valued" can upgrade an earlier "unrewarded" exactly once:
- *   valued     + pending/unrewarded -> credit, status 'confirmed'
- *   valued     + confirmed          -> duplicate (already paid)
- *   not_valued + pending            -> status 'unrewarded', no credit
- *   not_valued + unrewarded/confirmed -> no-op
+ * AdsGram rewarded completion is settled here after the SDK resolves and the
+ * backend validates a pending watch session. The coin amount is the configured
+ * REWARD_PER_AD. Idempotent and safe against concurrent completion calls: the
+ * ad_view row is locked (FOR UPDATE), so only one request can credit a session.
  */
 export async function confirmAdView(params: {
   sessionId: string;

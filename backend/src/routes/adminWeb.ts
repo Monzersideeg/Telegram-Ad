@@ -253,7 +253,7 @@ adminWebRouter.get(
       minWithdrawal: env.economy.minWithdrawal,
       rewardPerAd: env.economy.rewardPerAd,
       maxAdsPerDay: env.economy.maxAdsPerDay,
-      adsgramEnabled: !!env.adsgram.blockId,
+      adsgramEnabled: !!env.adsgram.rewardBlockId,
     });
   })
 );

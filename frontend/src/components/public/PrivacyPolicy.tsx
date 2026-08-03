@@ -61,8 +61,8 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ appConfig, onNavig
           <h2 className="text-lg font-bold text-white">{isEn ? "3. Advertising Partners" : "3. Рекламные партнеры"}</h2>
           <p>
             {isEn
-              ? "We work with reputable third-party advertising networks (such as Monetag, Adsterra, CPX Research) to mediate ad campaigns. These networks may process your IP address and country details to render geographically targeted ads."
-              : "Мы работаем с надежными рекламными сетями (например, Monetag, Adsterra, CPX Research). Эти сети могут обрабатывать ваш IP-адрес и данные о стране для показа географически ориентированной рекламы."}
+              ? "We work with reputable third-party advertising networks (such as AdsGram and other trusted providers) to mediate ad campaigns. These networks may process your IP address and country details to render geographically targeted ads."
+              : "Мы работаем с надежными рекламными сетями (например, AdsGram и другие проверенные сети). Эти сети могут обрабатывать ваш IP-адрес и данные о стране для показа географически ориентированной рекламы."}
           </p>
         </section>
       </main>
