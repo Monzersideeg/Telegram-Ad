@@ -2,9 +2,7 @@ import "dotenv/config";
 
 function required(name: string): string {
   const v = process.env[name];
-  if (v === undefined || v === "") {
-    throw new Error(`Missing required env var: ${name}`);
-  }
+  if (v === undefined || v === "") throw new Error(`Missing required env var: ${name}`);
   return v;
 }
 
@@ -17,11 +15,8 @@ function num(name: string, fallback: number): number {
 }
 
 function list(name: string): string[] {
-  const v = process.env[name] || "";
-  return v.split(",").map((s) => s.trim()).filter(Boolean);
+  return (process.env[name] || "").split(",").map((s) => s.trim()).filter(Boolean);
 }
-
-const legacyAdsgramBlock = process.env.ADSGRAM_BLOCK_ID || "";
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
@@ -34,15 +29,14 @@ export const env = {
   databaseUrl: required("DATABASE_URL"),
   redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
 
-  adsgram: {
-    // Rewarded block is used by the large WATCH AD button.
-    rewardBlockId: process.env.ADSGRAM_REWARD_BLOCK_ID || legacyAdsgramBlock,
-    // Interstitial block should be in the int-xxx format and is shown on natural tab transitions.
-    interstitialBlockId: process.env.ADSGRAM_INTERSTITIAL_BLOCK_ID || legacyAdsgramBlock,
-    // Task block should be in the task-xxx format and renders as <adsgram-task> below the watch button.
-    taskBlockId: process.env.ADSGRAM_TASK_BLOCK_ID || "",
-    taskReward: num("ADSGRAM_TASK_REWARD", num("REWARD_PER_AD", 10)),
-    rewardSecret: process.env.ADSGRAM_REWARD_SECRET || "",
+  monetag: {
+    zoneId: process.env.MONETAG_ZONE_ID || "11590144",
+    postbackSecret: required("MONETAG_POSTBACK_SECRET"),
+    paramSession: process.env.MONETAG_PARAM_SESSION || "ymid",
+    paramValueType: process.env.MONETAG_PARAM_VALUE || "value",
+    paramPrice: process.env.MONETAG_PARAM_PRICE || "price",
+    paramTelegramId: process.env.MONETAG_PARAM_TELEGRAM_ID || "telegram_id",
+    paramEvent: process.env.MONETAG_PARAM_EVENT || "event",
   },
 
   economy: {

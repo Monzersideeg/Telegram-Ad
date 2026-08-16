@@ -18,14 +18,14 @@ export const SIMULATED_AD_CAMPAIGNS: AdCampaign[] = [
     iconName: 'Sparkles',
   },
   {
-    id: 'camp_adsgram_reward',
-    title: 'AdsGram Smart Rewards',
+    id: 'camp_monetag_reward',
+    title: 'Monetag Smart Rewards',
     description: 'Watch verified reward ads and earn ACN coins.',
     type: AdType.VIDEO,
     rewardAmount: 0.25,
     durationSeconds: 30,
     cpmValue: 12.50,
-    advertiserName: 'AdsGram Ads',
+    advertiserName: 'Monetag Ads',
     iconName: 'Tv',
   },
   {
@@ -67,7 +67,7 @@ export const MOCK_LEADERBOARD_USERS: LeaderboardUser[] = [
   { rank: 1, username: 'durov_fans', fullName: 'Pavel Enthusiast', avatarSeed: 'durov', totalEarned: 245.80, referralCount: 158, activeReferralCount: 124 },
   { rank: 2, username: 'ton_whale', fullName: 'TON Whale Account', avatarSeed: 'whale', totalEarned: 189.50, referralCount: 94, activeReferralCount: 78 },
   { rank: 3, username: 'ad_slayer', fullName: 'Alex Mercer', avatarSeed: 'slayer', totalEarned: 142.20, referralCount: 57, activeReferralCount: 45 },
-  { rank: 4, username: 'adsgram_king', fullName: 'Dave Gold', avatarSeed: 'king', totalEarned: 115.65, referralCount: 42, activeReferralCount: 38 },
+  { rank: 4, username: 'monetag_king', fullName: 'Dave Gold', avatarSeed: 'king', totalEarned: 115.65, referralCount: 42, activeReferralCount: 38 },
   { rank: 5, username: 'crypto_earn', fullName: 'Evelyn Crypto', avatarSeed: 'earn', totalEarned: 94.30, referralCount: 31, activeReferralCount: 22 },
   { rank: 6, username: 'tg_stars_guy', fullName: 'Stars Collector', avatarSeed: 'stars', totalEarned: 78.40, referralCount: 19, activeReferralCount: 15 },
   { rank: 7, username: 'tap_tap_tap', fullName: 'Finger Warrior', avatarSeed: 'tapper', totalEarned: 64.15, referralCount: 12, activeReferralCount: 8 },
@@ -100,8 +100,8 @@ export const MOCK_REFERRED_FRIENDS: ReferredFriend[] = [
   }
 ];
 
-export const ADSGRAM_INTEGRATION_GUIDE = `
-### AdsGram integration
+export const MONETAG_INTEGRATION_GUIDE = `
+### Monetag integration
 
-AcEarn uses AdsGram rewarded, interstitial, and task formats through the official SDK. Configure reward, interstitial, and task block IDs in backend environment variables.
+AcEarn uses Monetag rewarded interstitial ads through the official script tag from libtl.com. Rewards are credited by server-to-server postback only.
 `;

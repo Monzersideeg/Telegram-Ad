@@ -19,11 +19,11 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by);
 
--- One row per AdsGram ad/task attempt. Crediting happens only when status -> confirmed server-side.
+-- One row per Monetag ad attempt. Crediting happens only when status -> confirmed by S2S postback.
 CREATE TABLE IF NOT EXISTS ad_views (
   id               BIGSERIAL PRIMARY KEY,
   user_id          BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  ad_network       TEXT NOT NULL DEFAULT 'adsgram',
+  ad_network       TEXT NOT NULL DEFAULT 'monetag',
   session_id       TEXT NOT NULL UNIQUE,          -- client-generated watch or task session id
   network_click_id TEXT UNIQUE,                   -- reserved; dedupe key if a network supplies one
   reward_amount    BIGINT NOT NULL DEFAULT 0,     -- credited coins (0 until a valued postback)

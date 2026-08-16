@@ -2,7 +2,7 @@
  * App orchestrator — ports the reference UI skeleton, wired to the EXISTING backend:
  *  - Auth: Telegram initData (auto-login inside Telegram; Landing page outside).
  *  - Data: /api/auth/me, /api/ledger/*, /api/withdrawals, /api/referrals.
- *  - Ads: AdsGram rewarded/interstitial/task formats with server-authoritative rewards.
+ *  - Ads: Monetag Rewarded Interstitial with server-to-server postback crediting.
  *  - Games (Lucky Spin / Missions / Arena / check-in): client-side simulations only.
  * The backend is unchanged; coin <-> USD conversion uses config.coinsPerUsd.
  */
@@ -38,7 +38,7 @@ import { txLabel } from "./lib/format";
 
 import { initTelegram } from "./lib/telegram";
 import { api, apiErrorMessage } from "./lib/api";
-import { preloadAdsGram, showAdsGramInterstitial, showAdsGramReward } from "./lib/adsgram";
+import { preloadMonetag, showMonetagRewardedAd } from "./lib/monetag";
 
 const TELEGRAM_APP_URL = "https://t.me/AcEarn_bot/app";
 
@@ -90,12 +90,8 @@ interface MeResponse {
     adCooldownSeconds: number;
     maxAdsPerDay: number;
     referralBonusPct: number;
-    adsgramBlockId: string;
-    adsgramRewardBlockId: string;
-    adsgramInterstitialBlockId: string;
-    adsgramTaskBlockId: string;
-    adsgramTaskReward: number;
-    adsgramEnabled: boolean;
+    monetagZoneId: string;
+    adProvider: "monetag";
   };
 }
 
@@ -169,11 +165,7 @@ export default function App() {
   const [rewardPerAdCoins, setRewardPerAdCoins] = useState<number>(0);
   const [adCooldownSeconds, setAdCooldownSeconds] = useState<number>(30);
   const [maxAdsPerDay, setMaxAdsPerDay] = useState<number>(20);
-  const [adsgramRewardBlockId, setAdsgramRewardBlockId] = useState<string>("");
-  const [adsgramInterstitialBlockId, setAdsgramInterstitialBlockId] = useState<string>("");
-  const [adsgramTaskBlockId, setAdsgramTaskBlockId] = useState<string>("");
-  const [adsgramTaskRewardCoins, setAdsgramTaskRewardCoins] = useState<number>(0);
-  const [lastInterstitialAt, setLastInterstitialAt] = useState<number>(0);
+  const [monetagZoneId, setMonetagZoneId] = useState<string>("");
 
   // Watch-ad UI state, lifted here so it survives tab switches (Dashboard unmounts
   // when you change tabs; keeping this in App means the spinner / status / cooldown
@@ -412,10 +404,7 @@ export default function App() {
       setRewardPerAdCoins(data.config.rewardPerAd);
       setAdCooldownSeconds(data.config.adCooldownSeconds);
       setMaxAdsPerDay(data.config.maxAdsPerDay);
-      setAdsgramRewardBlockId(data.config.adsgramRewardBlockId || data.config.adsgramBlockId || "");
-      setAdsgramInterstitialBlockId(data.config.adsgramInterstitialBlockId || "");
-      setAdsgramTaskBlockId(data.config.adsgramTaskBlockId || "");
-      setAdsgramTaskRewardCoins(data.config.adsgramTaskReward || 0);
+      setMonetagZoneId(data.config.monetagZoneId || "");
       setStats((prev) => ({
         ...prev,
         balance: balUsd,
@@ -442,13 +431,12 @@ export default function App() {
       loadSpin();
       loadFeed();
 
-      const ids = [data.config.adsgramRewardBlockId || data.config.adsgramBlockId, data.config.adsgramInterstitialBlockId, data.config.adsgramTaskBlockId].filter(Boolean);
-      if (ids.length) preloadAdsGram(ids);
+      if (data.config.monetagZoneId) preloadMonetag(data.config.monetagZoneId);
 
       addTerminalLog([
         "[SYSTEM] Telegram initData verified (HMAC-SHA256).",
         `[SYSTEM] Session linked to @${data.user.username || data.user.telegramId}.`,
-        "[SYSTEM] AdsGram ad engine ready.",
+        "[SYSTEM] Monetag ad engine ready. Awaiting S2S postbacks.",
       ]);
     } catch {
       setAuthed(false); // outside Telegram / not authorized -> Landing page
@@ -479,15 +467,25 @@ export default function App() {
   };
 
   const handleNavigateTab = (tab: string) => {
-    if (tab !== activeTab && adsgramInterstitialBlockId && Date.now() - lastInterstitialAt > 90_000) {
-      setLastInterstitialAt(Date.now());
-      showAdsGramInterstitial(adsgramInterstitialBlockId).catch(() => undefined);
-    }
     setActiveTab(tab);
     playClickSound();
   };
 
-  // ----- AdsGram rewarded ad flow -----
+  // ----- Monetag rewarded ad flow -----
+  const pollAdStatus = async (sessionId: string): Promise<{ status: string; reward: number } | null> => {
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        const { data } = await api.get<{ status: string; reward: number }>(`/api/ads/status/${sessionId}`);
+        if (["confirmed", "rejected", "unrewarded"].includes(data.status)) return data;
+      } catch {
+        /* retry */
+      }
+    }
+    return null;
+  };
+
   const handleWatchAd = async (): Promise<void> => {
     if (busyAction || adWatching) return;
     const en = language === "en";
@@ -500,7 +498,7 @@ export default function App() {
       setAdCooldownLeft(cooldown);
     };
 
-    if (!adsgramRewardBlockId) {
+    if (!monetagZoneId) {
       finish(en ? "Ads are not configured yet." : "Реклама ещё не настроена.", 10);
       return;
     }
@@ -514,11 +512,10 @@ export default function App() {
         ? crypto.randomUUID()
         : `s_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    // Open the AdsGram rewarded ad immediately from the user tap. The backend session
-    // is registered in parallel; coins are credited only by /api/ads/complete.
-    const adPromise = showAdsGramReward(adsgramRewardBlockId);
-    addTerminalLog([`POST /api/ads/start (session ${sessionId.slice(0, 8)}…) → opening AdsGram ad…`]);
-    const regPromise = api.post("/api/ads/start", { sessionId, placement: "reward" }).catch((err) => {
+    // Call Monetag immediately from the user tap. Backend session is registered in parallel.
+    const adPromise = showMonetagRewardedAd({ zoneId: monetagZoneId, sessionId, requestVar: "watch_button" });
+    addTerminalLog([`POST /api/ads/start (session ${sessionId.slice(0, 8)}…) → opening Monetag ad…`]);
+    const regPromise = api.post("/api/ads/start", { sessionId }).catch((err) => {
       addTerminalLog([`✗ /api/ads/start failed: ${apiErrorMessage(err)}`]);
       return null;
     });
@@ -528,24 +525,23 @@ export default function App() {
 
     if (!outcome.completed) {
       api.post("/api/ads/abandon", { sessionId }).catch(() => undefined);
-      addTerminalLog([`✗ AdsGram ad not completed: ${outcome.error || "skipped / unavailable"}`]);
+      addTerminalLog([`✗ Monetag ad not completed: ${outcome.error || "no feed / unavailable"}`]);
       finish(en ? "Ad skipped or unavailable — no reward this time." : "Реклама пропущена или недоступна — без награды.");
       return;
     }
 
-    try {
-      const { data } = await api.post<{ status: string; reward: number; balance: number }>("/api/ads/complete", { sessionId });
-      if (data.status !== "confirmed") {
-        finish(en ? "Ad completed but reward was not confirmed. Try again." : "Реклама завершена, но награда не подтверждена.");
-        return;
-      }
+    addTerminalLog([`GET /api/ads/status/${sessionId.slice(0, 8)}… → awaiting Monetag S2S confirmation…`]);
+    const status = await pollAdStatus(sessionId);
+    const rate = appConfig.usdToCoinRate || 1000;
 
-      const coins = data.reward;
-      const rate = appConfig.usdToCoinRate || 1000;
+    if (status?.status === "confirmed") {
+      const coins = status.reward;
+      const balance = await api.get<{ balance: number }>("/api/ledger/balance").catch(() => null);
+      const newBal = balance ? balance.data.balance / rate : stats.balance + coins / rate;
       const oldLevel = Math.floor(stats.adsWatchedCount / 10) + 1;
       setStats((prev) => ({
         ...prev,
-        balance: (data.balance ?? 0) / rate,
+        balance: newBal,
         lifetimeEarnings: prev.lifetimeEarnings + coins / rate,
         adsWatchedCount: prev.adsWatchedCount + 1,
       }));
@@ -556,29 +552,23 @@ export default function App() {
           fireLevelUpConfetti();
         }, 600);
       }
-      addTerminalLog([`✓ AdsGram reward verified. Credited +${coins} ${sym}.`]);
+      addTerminalLog([`✓ Monetag S2S postback verified. Credited +${coins} ${sym}.`]);
       playSuccessSound();
       setAdWatching(false);
       setBusyAction(false);
       setAdMsg(en ? `✓ Ad watched! +${coins} ${sym} credited.` : `✓ Реклама просмотрена! +${coins} ${sym}.`);
       setAdCooldownLeft(adCooldownSeconds);
-    } catch (err) {
-      addTerminalLog([`✗ /api/ads/complete failed: ${apiErrorMessage(err)}`]);
-      finish(apiErrorMessage(err), 6);
+      return;
     }
-  };
 
-  const handleTaskReward = async (blockId: string): Promise<void> => {
-    const { data } = await api.post<{ reward: number; balance: number }>("/api/ads/task-complete", { blockId });
-    const rate = appConfig.usdToCoinRate || 1000;
-    setStats((prev) => ({ ...prev, balance: data.balance / rate, lifetimeEarnings: prev.lifetimeEarnings + data.reward / rate }));
-    setWatchHistory((prev) => [
-      { id: `task_${Date.now()}`, campaignId: "ad_task_reward", title: "Channel task reward", reward: data.reward / rate, timestamp: new Date().toISOString() },
-      ...prev,
-    ]);
-    addTerminalLog([`✓ AdsGram task completed (${blockId}). +${data.reward} ${appConfig.currencySymbol}.`]);
-    playSuccessSound();
-    fireCelebrationConfetti();
+    if (status?.status === "unrewarded") {
+      addTerminalLog(["⚠ Monetag view was not valued. No reward credited."]);
+      finish(en ? "Ad watched, but this view was not monetized — no reward this time." : "Реклама просмотрена, но не монетизирована — без награды.", adCooldownSeconds);
+      return;
+    }
+
+    addTerminalLog(["⏳ Monetag reward pending — balance will sync after postback."]);
+    finish(en ? "Reward pending — waiting for ad network confirmation." : "Награда ожидает подтверждения рекламной сети.", 0);
   };
 
   // ----- daily check-in (backend) -----
@@ -854,9 +844,6 @@ export default function App() {
                       onNavigateTab={handleNavigateTab}
                       telegramUser={telegramUser}
                       onWatchAd={handleWatchAd}
-                      taskBlockId={adsgramTaskBlockId}
-                      taskRewardCoins={adsgramTaskRewardCoins || rewardPerAdCoins}
-                      onTaskReward={handleTaskReward}
                       appConfig={appConfig}
                       rewardPerAdCoins={rewardPerAdCoins}
                       adWatching={adWatching}

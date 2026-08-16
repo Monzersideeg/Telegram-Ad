@@ -1,13 +1,3 @@
 # AcEarn Telegram Mini App
 
-AcEarn is a Telegram Mini App where users watch AdsGram rewarded ads, complete AdsGram task ads, keep streaks, invite friends, and withdraw ACN coins.
-
-## Ads
-
-The app is AdsGram-only:
-
-- Rewarded ads: large green WATCH AD button.
-- Interstitial ads: shown at natural app transitions.
-- Task ads: rendered through `<adsgram-task>` below the watch button.
-
-Rewards are credited server-side only after the AdsGram SDK confirms completion and the backend validates the session.
+AcEarn uses Monetag rewarded interstitial ads. The frontend opens the Monetag SDK from `//libtl.com/sdk.js` with zone `11590144`; coins are credited only after the backend receives a valid Monetag S2S postback for the watch session.

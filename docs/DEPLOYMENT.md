@@ -2,11 +2,13 @@
 
 Deploy `backend/` to the API Vercel project and `frontend/` to the web Vercel project.
 
-Required backend ad variables:
+Required Monetag variables:
 
-- `ADSGRAM_REWARD_BLOCK_ID` — rewarded block for the WATCH AD button.
-- `ADSGRAM_INTERSTITIAL_BLOCK_ID` — interstitial block, usually `int-xxx`.
-- `ADSGRAM_TASK_BLOCK_ID` — task block, usually `task-xxx`.
-- `ADSGRAM_TASK_REWARD` — coins credited when the task emits `reward`.
+- `MONETAG_ZONE_ID=11590144`
+- `MONETAG_POSTBACK_SECRET`
 
-Also configure Telegram, database, economy, and admin variables from `.env.example`.
+Postback URL template:
+
+```text
+https://acearn-api.vercel.app/api/postback/monetag?secret=YOUR_SECRET&ymid={ymid}&event={event_type}&value={reward_event_type}&price={estimated_price}&telegram_id={telegram_id}
+```

@@ -52,12 +52,8 @@ authRouter.get(
         adCooldownSeconds: env.economy.adCooldownSeconds,
         maxAdsPerDay: env.economy.maxAdsPerDay,
         referralBonusPct: env.economy.referralBonusPct,
-        adsgramBlockId: env.adsgram.rewardBlockId,
-        adsgramRewardBlockId: env.adsgram.rewardBlockId,
-        adsgramInterstitialBlockId: env.adsgram.interstitialBlockId,
-        adsgramTaskBlockId: env.adsgram.taskBlockId,
-        adsgramTaskReward: env.adsgram.taskReward,
-        adsgramEnabled: !!env.adsgram.rewardBlockId,
+        monetagZoneId: env.monetag.zoneId,
+        adProvider: "monetag",
       },
     });
   })

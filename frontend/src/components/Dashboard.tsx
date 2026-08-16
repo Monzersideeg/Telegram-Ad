@@ -17,105 +17,12 @@ interface DashboardProps {
   maxAdsPerDay: number;
   streakWeek: { dow: string; done: boolean }[];
   streakDays: number;
-  taskBlockId: string;
-  taskRewardCoins: number;
-  onTaskReward: (blockId: string) => Promise<void>;
   appConfig: AppConfig;
   language: "en" | "ru";
   onSpin: () => Promise<{ ok: boolean; rewardCoins?: number; cooldownLeft?: number }>;
   spinCooldownLeft: number;
   feed: string[];
 }
-
-const AdsGramTaskCard: React.FC<{
-  blockId: string;
-  rewardCoins: number;
-  currencySymbol: string;
-  onReward: (blockId: string) => Promise<void>;
-}> = ({ blockId, rewardCoins, currencySymbol, onReward }) => {
-  const taskRef = useRef<HTMLElement | null>(null);
-  const [ready, setReady] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    setReady(typeof customElements !== "undefined" && !!customElements.get("adsgram-task"));
-    const timer = setTimeout(() => setReady(typeof customElements !== "undefined" && !!customElements.get("adsgram-task")), 1200);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    const task = taskRef.current;
-    if (!task) return;
-
-    const reward = async (event: Event) => {
-      const detail = (event as CustomEvent).detail;
-      const rewardedBlockId = typeof detail === "string" ? detail : blockId;
-      setMsg("Task completed. Crediting reward…");
-      try {
-        await onReward(rewardedBlockId);
-        setMsg("Task reward credited.");
-      } catch {
-        setMsg("Task completed, but reward could not be credited. Try refreshing.");
-      }
-    };
-    const notFound = () => setMsg("No channel task is available right now.");
-    const tooLong = () => setMsg("Session is too long. Please restart the app to get tasks.");
-    const error = () => setMsg("Could not load task. Try again later.");
-
-    task.addEventListener("reward", reward);
-    task.addEventListener("onBannerNotFound", notFound);
-    task.addEventListener("onTooLongSession", tooLong);
-    task.addEventListener("onError", error);
-    return () => {
-      task.removeEventListener("reward", reward);
-      task.removeEventListener("onBannerNotFound", notFound);
-      task.removeEventListener("onTooLongSession", tooLong);
-      task.removeEventListener("onError", error);
-    };
-  }, [blockId, onReward]);
-
-  if (!blockId) {
-    return (
-      <div className="w-full max-w-sm bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-50 border border-emerald-100 text-emerald-600">
-          <Users className="w-5 h-5" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="font-bold text-slate-800 text-xs">Join Telegram channel</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">AdsGram task block is not configured yet.</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!ready) {
-    return (
-      <div className="w-full max-w-sm bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-center text-xs text-slate-400 font-semibold">
-        Loading channel task…
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full max-w-sm space-y-1.5">
-      {React.createElement(
-        "adsgram-task",
-        {
-          ref: taskRef as React.Ref<HTMLElement>,
-          "data-block-id": blockId,
-          "data-debug": "false",
-          "data-debug-console": "false",
-          className: "adsgram-task-card",
-        },
-        <span slot="reward" className="adsgram-task-reward">+{rewardCoins.toLocaleString()} {currencySymbol}</span>,
-        <div slot="button" className="adsgram-task-button">Join</div>,
-        <div slot="claim" className="adsgram-task-button adsgram-task-claim">Claim</div>,
-        <div slot="done" className="adsgram-task-button adsgram-task-done">Done</div>
-      )}
-      {msg && <p className="text-[10px] text-center text-slate-500 font-semibold">{msg}</p>}
-    </div>
-  );
-};
 
 export const Dashboard: React.FC<DashboardProps> = ({
   stats,
@@ -129,9 +36,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   maxAdsPerDay,
   streakWeek,
   streakDays,
-  taskBlockId,
-  taskRewardCoins,
-  onTaskReward,
   appConfig,
   language,
   onSpin,
@@ -141,7 +45,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const t = translations[language] || translations.en;
   const [floatingCoins, setFloatingCoins] = useState<{ id: number; amount: string }[]>([]);
   const prevBalRef = useRef<number | null>(null);
-  const feedItems = feed && feed.length ? feed : ["Watch a rewarded ad to earn ACN 🚀", "Complete a channel task for bonus coins ✨"];
+  const feedItems = feed && feed.length ? feed : ["Watch a rewarded ad to earn ACN 🚀", "Keep your streak alive for bonus coins ✨"];
   const [tickerIndex, setTickerIndex] = useState(0);
 
   useEffect(() => {
@@ -243,7 +147,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {adMsg && <p className="mt-2 text-[11px] text-center text-amber-600 font-semibold px-3 leading-snug">{adMsg}</p>}
       </section>
 
-      <AdsGramTaskCard blockId={taskBlockId} rewardCoins={taskRewardCoins} currencySymbol={appConfig.currencySymbol} onReward={onTaskReward} />
 
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4">

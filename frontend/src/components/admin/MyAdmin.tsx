@@ -21,7 +21,7 @@ interface AdminStats {
   minWithdrawal?: number;
   rewardPerAd?: number;
   maxAdsPerDay?: number;
-  adsgramEnabled?: boolean;
+  monetagEnabled?: boolean;
 }
 interface AdminWithdrawal {
   id: number;
@@ -259,7 +259,7 @@ const Overview: React.FC = () => {
           <div><span className="text-slate-500 block">Coins / USD</span><b>{formatCoins(stats.coinsPerUsd ?? 0)}</b></div>
           <div><span className="text-slate-500 block">Min withdrawal</span><b>{formatCoins(stats.minWithdrawal ?? 0)} coins</b></div>
           <div><span className="text-slate-500 block">Reward / ad</span><b>{formatCoins(stats.rewardPerAd ?? 0)} coins</b></div>
-          <div><span className="text-slate-500 block">AdsGram</span><b className={stats.adsgramEnabled ? "text-emerald-400" : "text-amber-300"}>{stats.adsgramEnabled ? "enabled" : "disabled"}</b></div>
+          <div><span className="text-slate-500 block">Monetag</span><b className={stats.monetagEnabled ? "text-emerald-400" : "text-amber-300"}>{stats.monetagEnabled ? "enabled" : "disabled"}</b></div>
         </div>
         <p className="text-[11px] text-slate-500 mt-3">These values are read from the deployed backend environment and used by the app APIs.</p>
       </div>

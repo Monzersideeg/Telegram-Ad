@@ -7,6 +7,7 @@ import { logger } from "./lib/logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
 import { adsRouter } from "./routes/ads.js";
+import { postbackRouter } from "./routes/postback.js";
 import { ledgerRouter } from "./routes/ledger.js";
 import { referralsRouter } from "./routes/referrals.js";
 import { withdrawalsRouter } from "./routes/withdrawals.js";
@@ -41,6 +42,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
 app.use("/api/auth", authRouter);
 app.use("/api/ads", adsRouter);
+app.use("/api/postback", postbackRouter);
 app.use("/api/ledger", ledgerRouter);
 app.use("/api/referrals", referralsRouter);
 app.use("/api/withdrawals", withdrawalsRouter);

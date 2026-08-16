@@ -60,8 +60,8 @@ export type ConfirmResult =
  * Settle an ad view from a verified S2S postback. This is the ONLY place ad coins
  * are minted.
  *
- * AdsGram rewarded completion is settled here after the SDK resolves and the
- * backend validates a pending watch session. The coin amount is the configured
+ * Monetag rewarded completion is settled here after the S2S postback
+ * validates a pending watch session. The coin amount is the configured
  * REWARD_PER_AD. Idempotent and safe against concurrent completion calls: the
  * ad_view row is locked (FOR UPDATE), so only one request can credit a session.
  */

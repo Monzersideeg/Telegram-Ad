@@ -8,11 +8,11 @@ export const translations = {
     // Header
     welcomeBack: "Welcome back",
     pro: "PRO",
-    cpmAdConsole: "AdsGram Ad Console",
+    cpmAdConsole: "Monetag Ad Console",
     directCpmMonetization: "Direct CPM Monetization",
-    replaceSimulatedCampaigns: "Configure AdsGram block IDs in the backend environment to monetize live views.",
+    replaceSimulatedCampaigns: "Configure Monetag block IDs in the backend environment to monetize live views.",
     useRealPlacements: "Use Real Placements",
-    loadsRealAdsGramAds: "Loads real AdsGram ads",
+    loadsRealMonetagAds: "Loads real Monetag ads",
     smartlinkDirectUrl: "Smartlink Direct URL",
     popunderZoneId: "Popunder Zone ID",
     interstitialId: "Interstitial ID",
@@ -159,11 +159,11 @@ export const translations = {
     // Header
     welcomeBack: "С возвращением",
     pro: "ПРО",
-    cpmAdConsole: "Панель рекламы AdsGram",
+    cpmAdConsole: "Панель рекламы Monetag",
     directCpmMonetization: "Прямая CPM монетизация",
-    replaceSimulatedCampaigns: "Замените симулированные кампании на ваши реальные ключи зон AdsGram для монетизации реальных просмотров.",
+    replaceSimulatedCampaigns: "Замените симулированные кампании на ваши реальные ключи зон Monetag для монетизации реальных просмотров.",
     useRealPlacements: "Использовать реальные размещения",
-    loadsRealAdsGramAds: "Внедряет реальные рекламные зоны AdsGram",
+    loadsRealMonetagAds: "Внедряет реальные рекламные зоны Monetag",
     smartlinkDirectUrl: "Прямая ссылка Smartlink",
     popunderZoneId: "ID зоны Popunder",
     interstitialId: "ID Interstitial",
@@ -330,8 +330,8 @@ export const FAQ_ITEMS_TR = {
     },
     {
       category: 'Integration',
-      question: 'Can I configure AdsGram block IDs?',
-      answer: 'AdsGram block IDs are configured securely in the backend environment. Rewards are credited only after verified AdsGram completion.',
+      question: 'Can I configure Monetag block IDs?',
+      answer: 'Monetag block IDs are configured securely in the backend environment. Rewards are credited only after verified Monetag completion.',
       colorClass: 'text-amber-500 bg-amber-50 border-amber-100',
     },
     {
@@ -362,8 +362,8 @@ export const FAQ_ITEMS_TR = {
     },
     {
       category: 'Интеграция',
-      question: 'Можно ли настроить блоки AdsGram?',
-      answer: 'Блоки AdsGram настраиваются в окружении backend. Награды начисляются только после подтвержденного завершения AdsGram.',
+      question: 'Можно ли настроить блоки Monetag?',
+      answer: 'Блоки Monetag настраиваются в окружении backend. Награды начисляются только после подтвержденного завершения Monetag.',
       colorClass: 'text-amber-500 bg-amber-50 border-amber-100',
     },
     {
@@ -382,7 +382,7 @@ export const TICKER_EVENTS_TR = {
     "🚀 User @crypto_miner just unlocked Golden Multiplier for referring 5 friends!",
     "💰 @samantha_sparks just claimed her Day 7 Grand Check-in Bonus of $0.50!",
     "⚡ @durov_fans completed 45 ad tasks this week!",
-    "💎 AdsGram active: watch verified ads for ACN rewards!"
+    "💎 Monetag active: watch verified ads for ACN rewards!"
   ],
   ru: [
     "🎉 @whale_ton успешно вывел 14.8 TON ($108.70)!",
@@ -390,6 +390,6 @@ export const TICKER_EVENTS_TR = {
     "🚀 Пользователь @crypto_miner разблокировал Золотой Мультипликатор за привлечение 5 друзей!",
     "💰 @samantha_sparks получил Большой Бонус 7-го дня в размере $0.50!",
     "⚡ @durov_fans выполнил 45 рекламных заданий на этой неделе!",
-    "💎 AdsGram активен: смотрите проверенную рекламу и получайте ACN!"
+    "💎 Monetag активен: смотрите проверенную рекламу и получайте ACN!"
   ]
 };
