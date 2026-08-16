@@ -4,13 +4,23 @@
 // Coins are NOT credited by this client callback. Crediting is server-side only when
 // the Monetag S2S postback confirms a valued reward event for the watch session.
 
+type InAppSettings = {
+  frequency?: number;
+  capping?: number;
+  interval?: number;
+  timeout?: number;
+};
+
 type ShowOptions = {
   type?: "end" | "start" | "preload" | "pop" | "inApp";
   ymid?: string;
   requestVar?: string;
   timeout?: number;
   catchIfNoFeed?: boolean;
+  inAppSettings?: InAppSettings;
 };
+
+export type MonetagRewardFormat = "rewarded_interstitial" | "rewarded_popup";
 
 type AdResult = {
   reward_event_type?: "valued" | "non_valued" | "not_valued";
@@ -100,12 +110,14 @@ export function showMonetagRewardedAd(opts: {
   zoneId: string;
   sessionId: string;
   requestVar?: string;
+  format?: MonetagRewardFormat;
 }): Promise<MonetagOutcome> {
   const show = getHandler(opts.zoneId);
+  const format = opts.format || "rewarded_interstitial";
   return show({
-    type: "end",
+    type: format === "rewarded_popup" ? "pop" : "end",
     ymid: opts.sessionId,
-    requestVar: opts.requestVar || "watch_button",
+    requestVar: opts.requestVar || format,
     catchIfNoFeed: true,
   })
     .then((result) => ({
@@ -120,4 +132,22 @@ export function showMonetagRewardedAd(opts: {
         error: msg,
       };
     });
+}
+
+
+/**
+ * Starts Monetag In-app Interstitial automation. This format is not rewarded and
+ * should never mint coins. Monetag controls display based on the capping settings.
+ */
+export async function startMonetagInAppInterstitial(
+  zoneId: string,
+  settings: InAppSettings = { frequency: 2, capping: 0.5, interval: 120, timeout: 20 }
+): Promise<boolean> {
+  if (!zoneId) return false;
+  try {
+    await getHandler(zoneId)({ type: "inApp", inAppSettings: settings });
+    return true;
+  } catch {
+    return false;
+  }
 }

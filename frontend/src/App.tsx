@@ -38,7 +38,7 @@ import { txLabel } from "./lib/format";
 
 import { initTelegram } from "./lib/telegram";
 import { api, apiErrorMessage } from "./lib/api";
-import { preloadMonetag, showMonetagRewardedAd } from "./lib/monetag";
+import { preloadMonetag, showMonetagRewardedAd, startMonetagInAppInterstitial, type MonetagRewardFormat } from "./lib/monetag";
 
 const TELEGRAM_APP_URL = "https://t.me/AcEarn_bot/app";
 
@@ -166,6 +166,7 @@ export default function App() {
   const [adCooldownSeconds, setAdCooldownSeconds] = useState<number>(30);
   const [maxAdsPerDay, setMaxAdsPerDay] = useState<number>(20);
   const [monetagZoneId, setMonetagZoneId] = useState<string>("");
+  const [monetagInAppStarted, setMonetagInAppStarted] = useState<boolean>(false);
 
   // Watch-ad UI state, lifted here so it survives tab switches (Dashboard unmounts
   // when you change tabs; keeping this in App means the spinner / status / cooldown
@@ -179,6 +180,22 @@ export default function App() {
     const id = setInterval(() => setAdCooldownLeft((s) => (s <= 1 ? 0 : s - 1)), 1000);
     return () => clearInterval(id);
   }, [adCooldownLeft]);
+
+  useEffect(() => {
+    if (!authed || !monetagZoneId || monetagInAppStarted) return;
+    setMonetagInAppStarted(true);
+    startMonetagInAppInterstitial(monetagZoneId, {
+      frequency: 2,
+      capping: 0.5,
+      interval: 120,
+      timeout: 20,
+    })
+      .then((ok) => {
+        if (ok) addTerminalLog(["[SYSTEM] Monetag In-app Interstitial enabled with safe capping."]);
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed, monetagZoneId, monetagInAppStarted]);
 
   // ----- helpers -----
   const addTerminalLog = (lines: string[]) => {
@@ -512,10 +529,18 @@ export default function App() {
         ? crypto.randomUUID()
         : `s_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+    const rewardFormat: MonetagRewardFormat = stats.adsWatchedCount % 2 === 0 ? "rewarded_interstitial" : "rewarded_popup";
+    const formatLabel = rewardFormat === "rewarded_popup" ? "Rewarded Popup" : "Rewarded Interstitial";
+
     // Call Monetag immediately from the user tap. Backend session is registered in parallel.
-    const adPromise = showMonetagRewardedAd({ zoneId: monetagZoneId, sessionId, requestVar: "watch_button" });
-    addTerminalLog([`POST /api/ads/start (session ${sessionId.slice(0, 8)}…) → opening Monetag ad…`]);
-    const regPromise = api.post("/api/ads/start", { sessionId }).catch((err) => {
+    const adPromise = showMonetagRewardedAd({
+      zoneId: monetagZoneId,
+      sessionId,
+      requestVar: rewardFormat,
+      format: rewardFormat,
+    });
+    addTerminalLog([`POST /api/ads/start (session ${sessionId.slice(0, 8)}…) → opening Monetag ${formatLabel}…`]);
+    const regPromise = api.post("/api/ads/start", { sessionId, adFormat: rewardFormat }).catch((err) => {
       addTerminalLog([`✗ /api/ads/start failed: ${apiErrorMessage(err)}`]);
       return null;
     });
@@ -525,7 +550,7 @@ export default function App() {
 
     if (!outcome.completed) {
       api.post("/api/ads/abandon", { sessionId }).catch(() => undefined);
-      addTerminalLog([`✗ Monetag ad not completed: ${outcome.error || "no feed / unavailable"}`]);
+      addTerminalLog([`✗ Monetag ${formatLabel} not completed: ${outcome.error || "no feed / unavailable"}`]);
       finish(en ? "Ad skipped or unavailable — no reward this time." : "Реклама пропущена или недоступна — без награды.");
       return;
     }

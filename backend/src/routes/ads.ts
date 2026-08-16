@@ -39,6 +39,7 @@ adsRouter.post(
     }
     if (acquired !== "OK") throw new HttpError(429, "ad_in_progress", "Finish your current ad first");
 
+    const adFormat = req.body?.adFormat === "rewarded_popup" ? "rewarded_popup" : "rewarded_interstitial";
     const proposed = typeof req.body?.sessionId === "string" ? req.body.sessionId.trim() : "";
     const sessionId = UUID_RE.test(proposed) ? proposed : crypto.randomUUID();
     await query(
@@ -53,7 +54,8 @@ adsRouter.post(
       zoneId: env.monetag.zoneId,
       rewardPerAd: env.economy.rewardPerAd,
       ymid: sessionId,
-      requestVar: "watch_button",
+      requestVar: adFormat,
+      adFormat,
       telegramId: user.telegram_id,
     });
   })
