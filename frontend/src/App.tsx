@@ -181,22 +181,6 @@ export default function App() {
     return () => clearInterval(id);
   }, [adCooldownLeft]);
 
-  useEffect(() => {
-    if (!authed || !monetagZoneId || monetagInAppStarted) return;
-    setMonetagInAppStarted(true);
-    startMonetagInAppInterstitial(monetagZoneId, {
-      frequency: 2,
-      capping: 0.5,
-      interval: 120,
-      timeout: 20,
-    })
-      .then((ok) => {
-        if (ok) addTerminalLog(["[SYSTEM] Monetag In-app Interstitial enabled with safe capping."]);
-      })
-      .catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authed, monetagZoneId, monetagInAppStarted]);
-
   // ----- helpers -----
   const addTerminalLog = (lines: string[]) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -484,13 +468,26 @@ export default function App() {
   };
 
   const handleNavigateTab = (tab: string) => {
+    if (tab !== activeTab && monetagZoneId && !monetagInAppStarted) {
+      setMonetagInAppStarted(true);
+      startMonetagInAppInterstitial(monetagZoneId, {
+        frequency: 1,
+        capping: 1,
+        interval: 300,
+        timeout: 8,
+      })
+        .then((ok) => {
+          if (ok) addTerminalLog(["[SYSTEM] Monetag In-app Interstitial enabled after navigation."]);
+        })
+        .catch(() => undefined);
+    }
     setActiveTab(tab);
     playClickSound();
   };
 
   // ----- Monetag rewarded ad flow -----
   const pollAdStatus = async (sessionId: string): Promise<{ status: string; reward: number } | null> => {
-    const deadline = Date.now() + 60_000;
+    const deadline = Date.now() + 18_000;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 1500));
       try {
@@ -592,8 +589,30 @@ export default function App() {
       return;
     }
 
-    addTerminalLog(["⏳ Monetag reward pending — balance will sync after postback."]);
-    finish(en ? "Reward pending — waiting for ad network confirmation." : "Награда ожидает подтверждения рекламной сети.", 0);
+    addTerminalLog(["⏳ Monetag S2S postback delayed — using SDK completion fallback…"]);
+    try {
+      const { data } = await api.post<{ status: string; reward: number; balance: number }>("/api/ads/client-complete", { sessionId });
+      if (data.status === "confirmed") {
+        const coins = data.reward;
+        setStats((prev) => ({
+          ...prev,
+          balance: data.balance / rate,
+          lifetimeEarnings: prev.lifetimeEarnings + coins / rate,
+          adsWatchedCount: prev.adsWatchedCount + 1,
+        }));
+        addTerminalLog([`✓ Monetag SDK completion fallback credited +${coins} ${sym}. Check S2S postback URL in Monetag dashboard.`]);
+        playSuccessSound();
+        setAdWatching(false);
+        setBusyAction(false);
+        setAdMsg(en ? `✓ Ad watched! +${coins} ${sym} credited.` : `✓ Реклама просмотрена! +${coins} ${sym}.`);
+        setAdCooldownLeft(adCooldownSeconds);
+        return;
+      }
+      finish(en ? "Reward could not be confirmed. Please try again." : "Награда не подтверждена. Попробуйте ещё раз.", 8);
+    } catch (err) {
+      addTerminalLog([`✗ /api/ads/client-complete failed: ${apiErrorMessage(err)}`]);
+      finish(en ? "Reward confirmation failed. Please try again." : "Не удалось подтвердить награду. Попробуйте ещё раз.", 8);
+    }
   };
 
   // ----- daily check-in (backend) -----
@@ -615,7 +634,6 @@ export default function App() {
         ]);
         addTerminalLog([`✓ Daily check-in. +${data.reward} ${appConfig.currencySymbol} (streak ${data.streakDays}).`]);
         playSuccessSound();
-        fireCelebrationConfetti();
       }
     } catch (err) {
       addTerminalLog([`✗ ${apiErrorMessage(err)}`]);

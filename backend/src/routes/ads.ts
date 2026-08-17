@@ -2,9 +2,10 @@ import { Router } from "express";
 import crypto from "node:crypto";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler, HttpError } from "../middleware/error.js";
-import { checkAdRateLimit, redis } from "../lib/redis.js";
+import { checkAdRateLimit, recordAdReward, redis } from "../lib/redis.js";
 import { query } from "../db/pool.js";
 import { env } from "../config/env.js";
+import { confirmAdView, getBalance } from "../services/ledger.js";
 import type { AuthedRequest } from "../types.js";
 
 export const adsRouter = Router();
@@ -76,6 +77,59 @@ adsRouter.get(
       try { await redis.del(startLockKey(user.id)); } catch { /* ignore */ }
     }
     res.json({ status, reward: Number(reward_amount) });
+  })
+);
+
+
+/**
+ * POST /api/ads/client-complete { sessionId }
+ * Fallback for Monetag SDK completion when the S2S postback is delayed/missing.
+ * Still server-guarded: valid user/session, pending status, minimum age, and idempotent settlement.
+ * If the S2S postback arrives first/later, confirmAdView keeps crediting once-only.
+ */
+adsRouter.post(
+  "/client-complete",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const user = req.auth!.dbUser;
+    const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId.trim() : "";
+    if (!/^[0-9a-f-]{8,}$/i.test(sessionId)) throw new HttpError(400, "bad_session");
+
+    const row = await query<{ ad_network: string; status: string; created_at: string; reward_amount: string }>(
+      `SELECT ad_network, status, created_at::text AS created_at, reward_amount::text
+         FROM ad_views WHERE session_id = $1 AND user_id = $2`,
+      [sessionId, user.id]
+    );
+    const view = row.rows[0];
+    if (!view) throw new HttpError(404, "not_found");
+    if (view.ad_network !== "monetag") throw new HttpError(403, "wrong_network");
+
+    if (view.status === "confirmed") {
+      res.json({ status: "confirmed", reward: Number(view.reward_amount || 0), balance: await getBalance(user.id) });
+      return;
+    }
+    if (view.status !== "pending") throw new HttpError(409, "already_settled");
+
+    const ageMs = Date.now() - new Date(view.created_at).getTime();
+    if (ageMs < 8000) throw new HttpError(425, "too_soon", "Ad session is too new");
+
+    const result = await confirmAdView({
+      sessionId,
+      rewarded: true,
+      eventType: "monetag_client_complete_fallback",
+      ip: req.ip ?? null,
+    });
+    try {
+      await redis.del(startLockKey(user.id));
+      if (result.result === "confirmed") await recordAdReward(user.id, env.economy.adCooldownSeconds);
+    } catch {
+      /* optional rate-limit bookkeeping */
+    }
+
+    res.json({
+      status: result.result,
+      reward: "reward" in result ? result.reward : 0,
+      balance: "balance" in result ? result.balance : await getBalance(user.id),
+    });
   })
 );
 

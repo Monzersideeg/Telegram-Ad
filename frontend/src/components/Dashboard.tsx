@@ -94,15 +94,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       <section className="flex flex-col items-center py-2 relative">
         <div className="relative flex items-center justify-center py-3">
-          <span className="absolute w-48 h-48 sm:w-52 sm:h-52 rounded-full border-[7px] border-emerald-300/45 pointer-events-none" />
-          <span className="absolute w-44 h-44 sm:w-48 sm:h-48 rounded-full bg-emerald-400/10 pointer-events-none" />
           <button
             id="watchAdBtn"
             onClick={onWatchAd}
             disabled={disabled}
             aria-label={adWatching ? "Loading ad" : adCooldownLeft > 0 ? `Locked ${adCooldownLeft}s` : "Watch ad"}
-            className={`relative z-10 w-44 h-44 sm:w-48 sm:h-48 rounded-full flex flex-col items-center justify-center gap-2 font-black transition-all duration-300 select-none shadow-2xl border-[6px] active:scale-95 outline-none ${
-              disabled ? "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200" : "bg-gradient-to-br from-emerald-400 via-green-500 to-emerald-600 text-white hover:scale-[1.02] cursor-pointer border-emerald-200/50 shadow-emerald-500/30"
+            className={`relative z-10 w-44 h-44 sm:w-48 sm:h-48 rounded-full flex flex-col items-center justify-center gap-2 font-black transition-all duration-300 select-none shadow-2xl active:scale-95 outline-none ${
+              disabled ? "bg-slate-100 text-slate-400 cursor-not-allowed " : "bg-gradient-to-br from-emerald-400 via-green-500 to-emerald-600 text-white hover:scale-[1.02] cursor-pointer shadow-emerald-500/30"
             }`}
           >
             {adWatching ? (
